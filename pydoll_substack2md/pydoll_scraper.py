@@ -135,7 +135,7 @@ class BaseSubstackScraper(ABC):
                 return []
 
             root = ET.fromstring(response.content)
-            urls = []
+            urls: list[str] = []
             for item in root.findall(".//item"):
                 link = item.find("link")
                 if link is not None and link.text:
@@ -213,10 +213,7 @@ class BaseSubstackScraper(ABC):
     @staticmethod
     def get_filename_from_url(url: str, filetype: str = ".md") -> str:
         """Gets the filename from the URL."""
-        if not isinstance(url, str):
-            raise ValueError("url must be a string")
-        if not isinstance(filetype, str):
-            raise ValueError("filetype must be a string")
+
         if not filetype.startswith("."):
             filetype = f".{filetype}"
         return url.split("/")[-1] + filetype
@@ -224,10 +221,6 @@ class BaseSubstackScraper(ABC):
     @staticmethod
     def combine_metadata_and_content(title: str, subtitle: str, date: str, like_count: str, content: str) -> str:
         """Combines metadata and content into Markdown format."""
-        if not isinstance(title, str):
-            raise ValueError("title must be a string")
-        if not isinstance(content, str):
-            raise ValueError("content must be a string")
 
         metadata = f"# {title}\n\n"
         if subtitle:
@@ -292,22 +285,24 @@ class BaseSubstackScraper(ABC):
         os.makedirs(data_dir, exist_ok=True)
 
         json_path = os.path.join(data_dir, f"{self.writer_name}.json")
-        existing_data = []
+        existing_data: list[dict[str, Any]] = []
 
         if os.path.exists(json_path):
             async with aiofiles.open(json_path, encoding="utf-8") as file:
                 content = await file.read()
-                existing_data = json.loads(content)
+                loaded_data = json.loads(content)
+                if isinstance(loaded_data, list):
+                    existing_data = loaded_data  # type: ignore
 
         # Merge with existing data
-        essays_data = existing_data + [data for data in essays_data if data not in existing_data]
+        merged_data: list[dict[str, Any]] = existing_data + [data for data in essays_data if data not in existing_data]
 
         async with aiofiles.open(json_path, "w", encoding="utf-8") as file:
-            await file.write(json.dumps(essays_data, ensure_ascii=False, indent=4))
+            await file.write(json.dumps(merged_data, ensure_ascii=False, indent=4))
 
     async def scrape_posts(self, num_posts_to_scrape: int = 0) -> None:
         """Scrapes posts and saves them as markdown and HTML files."""
-        essays_data = []
+        essays_data: list[dict[str, Any]] = []
         count = 0
         total = num_posts_to_scrape if num_posts_to_scrape != 0 else len(self.post_urls)
 
@@ -477,7 +472,7 @@ class PydollSubstackScraper(BaseSubstackScraper):
 
         # Check for error
         error_container = await self.tab.find(id="error-container", timeout=2, raise_exc=False)
-        if error_container and await error_container.is_visible():
+        if error_container:
             raise Exception("Login failed. Please check your credentials.")
         else:
             # Assume login successful if no error
@@ -491,7 +486,7 @@ class PydollSubstackScraper(BaseSubstackScraper):
 
         try:
             # Enable Cloudflare bypass if needed
-            async with self.tab.expect_and_bypass_cloudflare_captcha():  # type: ignore
+            async with self.tab.expect_and_bypass_cloudflare_captcha():
                 await self.tab.go_to(url)
 
             # Wait for content to load
@@ -504,7 +499,7 @@ class PydollSubstackScraper(BaseSubstackScraper):
                 return None
 
             # Get page source
-            page_source = await self.tab.page_source  # type: ignore
+            page_source = await self.tab.page_source
             return BeautifulSoup(page_source, "html.parser")
 
         except Exception as e:
@@ -535,13 +530,13 @@ class PydollSubstackScraper(BaseSubstackScraper):
             if USE_PREMIUM or (SUBSTACK_EMAIL and SUBSTACK_PASSWORD):
                 await self.login()
 
-            essays_data = []
+            essays_data: list[dict[str, Any]] = []
             urls_to_scrape = self.post_urls[:num_posts_to_scrape] if num_posts_to_scrape else self.post_urls
 
             # Process in batches
             for i in range(0, len(urls_to_scrape), max_concurrent):
                 batch = urls_to_scrape[i : i + max_concurrent]
-                tasks = []
+                tasks: list[Any] = []
 
                 for url in batch:
                     task = self.scrape_single_post(url)
@@ -552,7 +547,7 @@ class PydollSubstackScraper(BaseSubstackScraper):
 
                 for result in results:
                     if isinstance(result, dict):
-                        essays_data.append(result)
+                        essays_data.append(result)  # type: ignore
                     elif isinstance(result, Exception):
                         print(f"Error in concurrent scraping: {result}")
 
@@ -578,7 +573,7 @@ class PydollSubstackScraper(BaseSubstackScraper):
             # Create new tab for concurrent scraping
             if self.browser is None:
                 raise RuntimeError("Browser not initialized")
-            tab = await self.browser.new_tab()  # type: ignore
+            tab = await self.browser.new_tab()
 
             try:
                 # Navigate to post
@@ -592,7 +587,7 @@ class PydollSubstackScraper(BaseSubstackScraper):
                     return None
 
                 # Get page source
-                page_source = await tab.page_source  # type: ignore
+                page_source = await tab.page_source
                 soup = BeautifulSoup(page_source, "html.parser")
 
                 title, subtitle, like_count, date, md = self.extract_post_data(soup)
