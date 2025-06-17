@@ -24,7 +24,17 @@ The tool creates a folder structure organized by Substack author name, downloads
 - Python 3.10 or higher, Python 3.11 recommended
 - Chrome or Edge browser installed
 
-## Quick Start
+## Installation
+
+### Install from PyPI (Recommended)
+
+```bash
+pip install substack2md
+```
+
+View on PyPI: https://pypi.org/project/substack2md/
+
+### Install from Source
 
 Clone the repository:
 
@@ -33,39 +43,40 @@ git clone https://github.com/cognitive-glitch/pydoll-substack2md.git
 cd pydoll-substack2md
 ```
 
-### Run with uv (Recommended - No Installation Needed!)
+## Usage
+
+After installing with `pip install substack2md`, you can use the command directly:
+
+```bash
+# Use the short command
+substack2md https://example.substack.com
+
+# Or the full command
+substack2markdown https://example.substack.com
+
+# With login for premium content
+substack2md https://example.substack.com --login
+
+# Manual login mode (works with any login method)
+substack2md https://example.substack.com --manual-login
+
+# Run with custom options
+substack2md https://example.substack.com -n 10 --headless
+```
+
+### Running from Source with uv
+
+If you cloned the repository and want to run without installing:
 
 ```bash
 # Run directly with uv - it handles all dependencies automatically
-uv run pydoll-substack2md https://example.substack.com
-
-# Or use the shorter alias
 uv run substack2md https://example.substack.com
 
 # With login for premium content
 uv run substack2md https://example.substack.com --login
 
-# Manual login mode (works with any login method)
-uv run substack2md https://example.substack.com --manual-login
-
 # Run with custom options
 uv run substack2md https://example.substack.com -n 10 --headless
-```
-
-### Traditional Installation
-
-If you prefer to install the package:
-
-```bash
-# Option 1: Using uv
-uv venv
-uv pip install -e .
-
-# Option 2: Using pip
-python -m venv venv
-source venv/bin/activate  # Linux/Mac
-.\venv\Scripts\activate   # Windows
-pip install -e .
 ```
 
 ### Configuration
@@ -81,47 +92,26 @@ SUBSTACK_EMAIL=your-email@domain.com
 SUBSTACK_PASSWORD=your-password
 ```
 
-## Usage Examples
-
-### Basic Usage
-
-```bash
-# Using uv run (no installation needed)
-uv run substack2md https://example.substack.com
-
-# Or if you installed the package
-substack2md https://example.substack.com
-pydoll-substack2md https://example.substack.com
-```
-
-### Premium Content
-
-```bash
-# Login for premium content access
-uv run substack2md https://example.substack.com --login
-uv run substack2md https://example.substack.com -l
-```
-
-### Advanced Options
+## Advanced Options
 
 ```bash
 # Scrape only 10 posts
-uv run substack2md https://example.substack.com -n 10
+substack2md https://example.substack.com -n 10
 
 # Run in headless mode (default is non-headless for user intervention)
-uv run substack2md https://example.substack.com --headless
+substack2md https://example.substack.com --headless
 
 # Use concurrent scraping for better performance
-uv run substack2md https://example.substack.com --concurrent --max-concurrent 5
+substack2md https://example.substack.com --concurrent --max-concurrent 5
 
 # Specify custom directories
-uv run substack2md https://example.substack.com -d ./posts --html-directory ./html
+substack2md https://example.substack.com -d ./posts --html-directory ./html
 
 # Custom browser path
-uv run substack2md https://example.substack.com --browser-path "/path/to/chrome"
+substack2md https://example.substack.com --browser-path "/path/to/chrome"
 
 # Custom delay between requests (respectful rate limiting)
-uv run substack2md https://example.substack.com --delay-min 2 --delay-max 5
+substack2md https://example.substack.com --delay-min 2 --delay-max 5
 ```
 
 ## Output Structure

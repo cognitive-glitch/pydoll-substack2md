@@ -3,9 +3,9 @@ requires = ["setuptools>=61.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "pydoll-substack2md"
+name = "substack2md"
 version = "0.1.0"
-description = "A Python scraper that downloads Substack posts and converts them to Markdown using Pydoll browser automation"
+description = "A CAPTCHA-safe Python scraper that downloads Substack posts and converts them to Markdown using Pydoll browser automation"
 readme = "README.md"
 authors = [{ name = "cognitive-glitch", email = "drivedon02@gmail.com" }]
 license = { text = "MIT" }
@@ -52,8 +52,8 @@ dev = [
 
 [project.scripts]
 substack2markdown = "pydoll_substack2md.pydoll_scraper:run"
-substack2md = "pydoll_substack2md.pydoll_scraper:run"        # Short alias
-pydoll-substack2md = "pydoll_substack2md.pydoll_scraper:run" # Main command
+substack2md = "pydoll_substack2md.pydoll_scraper:run"       # Short alias
+
 
 [tool.setuptools]
 packages = ["pydoll_substack2md"]
