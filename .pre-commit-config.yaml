@@ -1,0 +1,41 @@
+# Pre-commit hooks for AtomicFactors
+# Install with: pre-commit install
+
+repos:
+  # Ruff - Fast Python linter and formatter
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.11.13
+    hooks:
+      # Run the linter
+      - id: ruff
+        args: [--fix, --exit-zero]
+      # Run the formatter
+      - id: ruff-format
+        args: []
+
+  # Remove trailing whitespace
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-yaml
+      - id: check-added-large-files
+        args: ['--maxkb=1000']
+      - id: check-json
+      - id: check-toml
+      - id: check-merge-conflict
+      - id: mixed-line-ending
+        args: ['--fix=lf']
+
+  # # Type checking with pyright
+  # - repo: local
+  #   hooks:
+  #     - id: pyright
+  #       name: pyright
+  #       entry: pyright
+  #       language: system
+  #       types: [python]
+  #       pass_filenames: false
+  #       # Only run on staged Python files
+  #       stages: [pre-commit]

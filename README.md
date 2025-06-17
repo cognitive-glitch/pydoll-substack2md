@@ -1,96 +1,122 @@
-﻿# Substack2Markdown
+﻿# pydoll-substack2md
 
-Substack2Markdown is a Python tool for downloading free and premium Substack posts and saving them as both Markdown and 
-HTML files, and includes a simple HTML interface to browse and sort through the posts. It will save paid for content as 
-long as you're subscribed to that substack. 
+pydoll-substack2md is a Python tool for downloading free and premium Substack posts and saving them as both Markdown and HTML files, and includes a simple HTML interface to browse and sort through the posts.
 
-🆕 @Firevvork has built a web version of this tool at [Substack Reader](https://www.substacktools.com/reader) - no 
-installation required! (Works for free Substacks only.)
+This project is inspired by and forked from [timf34/Substack2Markdown](https://github.com/timf34/Substack2Markdown), and has been migrated from Selenium to Pydoll for improved performance and reliability.
 
-
-![Substack2Markdown Interface](./assets/images/screenshot.png)
-
-Once you run the script, it will create a folder named after the substack in `/substack_md_files`,
-and then begin to scrape the substack URL, converting the blog posts into markdown files. Once all the posts have been
-saved, it will generate an HTML file in `/substack_html_pages` directory that allows you to browse the posts.
-
-You can either hardcode the substack URL and the number of posts you'd like to save into the top of the file, or 
-specify them as command line arguments.
+The tool creates a folder structure organized by Substack author name, downloads posts as Markdown files, and generates an HTML interface for easy browsing.
 
 ## Features
 
-- Converts Substack posts into Markdown files.
-- Generates an HTML file to browse Markdown files.
-- Supports free and premium content (with subscription).
-- The HTML interface allows sorting essays by date or likes.
+- Converts Substack posts into Markdown files using html-to-markdown
+- Generates an HTML file to browse Markdown files
+- Supports free and premium content (with subscription)
+- The HTML interface allows sorting essays by date or likes
+- Async architecture for improved performance
+- Direct Chrome DevTools Protocol connection via Pydoll
+- Built-in Cloudflare bypass capability
+- Resource blocking for faster page loads
+- Concurrent post scraping support
+
+## Requirements
+
+- Python 3.10 or higher, Python 3.11 recommended
+- Chrome or Edge browser installed
 
 ## Installation
 
 Clone the repo and install the dependencies:
 
 ```bash
-git clone https://github.com/yourusername/substack_scraper.git
-cd substack_scraper
+git clone https://github.com/cognitive-glitch/pydoll-substack2md.git
+cd pydoll-substack2md
 
-# # Optinally create a virtual environment
-# python -m venv venv
-# # Activate the virtual environment
-# .\venv\Scripts\activate  # Windows
-# source venv/bin/activate  # Linux
+# Option 1: Using uv (recommended - fast and efficient)
+uv venv
+source .venv/bin/activate  # Linux/Mac
+.venv\Scripts\activate     # Windows
 
+# Install with uv
+uv pip install -e .
+# Or install requirements directly
+uv pip install -r requirements.txt
+
+# Option 2: Using pip
+python -m venv venv
+source venv/bin/activate  # Linux/Mac
+.\venv\Scripts\activate   # Windows
+
+# Install the package
+pip install -e .
+# Or install requirements directly
 pip install -r requirements.txt
 ```
 
-For the premium scraper, update the `config.py` in the root directory with your Substack email and password:
+For the premium scraper, create a `.env` file in the root directory with your Substack credentials:
 
-```python
-EMAIL = "your-email@domain.com"
-PASSWORD = "your-password"
+```bash
+# Copy the example file
+cp .env.example .env
+
+# Edit .env with your credentials
+SUBSTACK_EMAIL=your-email@domain.com
+SUBSTACK_PASSWORD=your-password
 ```
 
-You'll also need Microsoft Edge installed for the Selenium webdriver.
+The tool uses Pydoll for browser automation, which works with Chrome or Microsoft Edge browsers.
 
 ## Usage
 
-Specify the Substack URL and the directory to save the posts to:
+Run the tool using any of these commands:
 
-You can hardcode your desired Substack URL and the number of posts you'd like to save into the top of the file and run:
-```bash
-python substack_scraper.py
-```
-
-For free Substack sites:
+### Basic Usage
 
 ```bash
-python substack_scraper.py --url https://example.substack.com --directory /path/to/save/posts
+# Using the installed command
+substack2md https://example.substack.com
+
+# Or using Python module
+python -m pydoll_substack2md https://example.substack.com
+
+# Or use the main command
+pydoll-substack2md https://example.substack.com
 ```
 
-For premium Substack sites:
+### Scraping with Login (Premium Content)
 
 ```bash
-python substack_scraper.py --url https://example.substack.com --directory /path/to/save/posts --premium
+# Login for premium content access
+substack2md https://example.substack.com --login
+
+# Or use short flag
+substack2md https://example.substack.com -l
 ```
 
-To scrape a specific number of posts:
+### Advanced Options
 
 ```bash
-python substack_scraper.py --url https://example.substack.com --directory /path/to/save/posts --number 5
+# Scrape only 10 posts
+substack2md https://example.substack.com -n 10
+
+# Run in headless mode (default is non-headless to allow user intervention)
+substack2md https://example.substack.com --headless
+
+# Use concurrent scraping for better performance
+substack2md https://example.substack.com --concurrent --max-concurrent 5
+
+# Specify custom directories
+substack2md https://example.substack.com -d ./posts --html-directory ./html
+
+# Custom browser path
+substack2md https://example.substack.com --browser-path "/path/to/chrome"
 ```
 
-### Online Version
+## Migration to Pydoll
 
-For a hassle-free experience without any local setup:
+This project has been migrated from Selenium to Pydoll for improved performance and reliability. Key benefits include:
 
-1. Visit [Substack Reader](https://www.substacktools.com/reader)
-2. Enter the Substack URL you want to read or export
-3. Click "Go" to instantly view the content or "Export" to download Markdown files
-
-This online version provides a user-friendly web interface for reading and exporting free Substack articles, with no installation required. However, please note that the online version currently does not support exporting premium content. For full functionality, including premium content export, please use the local script as described above. Built by @Firevvork. 
-
-## Viewing Markdown Files in Browser
-
-To read the Markdown files in your browser, install the [Markdown Viewer](https://chromewebstore.google.com/detail/markdown-viewer/ckkdlimhmcjmikdlpkmbgfkaikojcbjk)
-browser extension. But note, we also save the files as HTML for easy viewing, 
-just set the toggle to HTML on the author homepage. 
-
-Or you can use our [Substack Reader](https://www.substacktools.com/reader) online tool, which allows you to read and export free Substack articles directly in your browser. (Note: Premium content export is currently only available in the local script version)
+- **Faster execution**: Direct Chrome DevTools Protocol connection
+- **Better reliability**: Event-driven architecture for dynamic content
+- **Async support**: Concurrent post scraping capabilities
+- **Cloudflare handling**: Built-in bypass for protected sites
+- **Resource optimization**: Block images/fonts for faster loading

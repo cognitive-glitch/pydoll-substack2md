@@ -1,0 +1,89 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "pydoll-substack2md"
+version = "0.1.0"
+description = "A Python scraper that downloads Substack posts and converts them to Markdown using Pydoll browser automation"
+readme = "README.md"
+authors = [{ name = "cognitive-glitch", email = "drivedon02@gmail.com" }]
+license = { text = "MIT" }
+requires-python = ">=3.10"
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Internet :: WWW/HTTP :: Dynamic Content",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+]
+keywords = ["substack", "scraper", "markdown", "newsletter", "pydoll", "async"]
+
+dependencies = [
+    "pydoll-python>=2.2",
+    "html-to-markdown>=1.3", # Latest version from PyPI
+    "beautifulsoup4>=4.12",
+    "lxml>=5.0",             # Optional parser for BeautifulSoup
+    "tqdm>=4.66",
+    "requests>=2.31.0",      # For sitemap/feed fetching
+    "markdown>=3.6",         # For HTML generation
+    "python-dotenv>=1.0.0",  # Environment variable management
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "pytest-asyncio>=1.0",
+    "black>=25.0.0",
+    "ruff>=0.1.0",
+    "pyright>=1.1.345",
+    "ty",
+]
+
+[project.urls]
+"Homepage" = "https://github.com/cognitive-glitch/pydoll-substack2md"
+"Bug Tracker" = "https://github.com/cognitive-glitch/pydoll-substack2md/issues"
+"Documentation" = "https://github.com/cognitive-glitch/pydoll-substack2md#readme"
+
+[project.scripts]
+substack2markdown = "pydoll_substack2md.pydoll_scraper:run"
+substack2md = "pydoll_substack2md.pydoll_scraper:run"        # Short alias
+pydoll-substack2md = "pydoll_substack2md.pydoll_scraper:run" # Main command
+
+[tool.setuptools]
+packages = ["pydoll_substack2md"]
+
+[tool.black]
+line-length = 120
+target-version = ['py310', 'py311', 'py312']
+
+[tool.ruff]
+line-length = 120
+lint.select = [
+    "E",    # pycodestyle errors
+    "W",    # pycodestyle warnings
+    "F",    # pyflakes
+    "I",    # isort
+    "UP",   # pyupgrade
+    "RUF",  # ruff specific rules
+    "PERF", # performance
+]
+# lint.ignore = ["E501", "B008"]
+target-version = "py311"
+
+[tool.pyright]
+pythonVersion = "3.11"
+typeCheckingMode = "strict"
+reportUnnecessaryTypeIgnoreComment = true
+reportImportCycles = true
+useLibraryCodeForTypes = true
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+python_files = ["test_*.py", "*_test.py"]
