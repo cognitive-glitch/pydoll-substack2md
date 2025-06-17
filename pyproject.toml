@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "substack2md"
-version = "0.1.0"
+version = "0.3.0"
 description = "A CAPTCHA-safe Python scraper that downloads Substack posts and converts them to Markdown using Pydoll browser automation"
 readme = "README.md"
 authors = [{ name = "cognitive-glitch", email = "drivedon02@gmail.com" }]
@@ -33,6 +33,7 @@ dependencies = [
     "requests>=2.31.0",      # For sitemap/feed fetching
     "markdown>=3.6",         # For HTML generation
     "python-dotenv>=1.0.0",  # Environment variable management
+    "python-dateutil>=2.8.0", # For date parsing
 ]
 
 [project.optional-dependencies]

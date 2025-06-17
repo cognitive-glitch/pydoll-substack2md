@@ -18,6 +18,8 @@ The tool creates a folder structure organized by Substack author name, downloads
 - Built-in Cloudflare bypass capability
 - Resource blocking for faster page loads
 - Concurrent post scraping support
+- Continuous/incremental fetching - only download new posts since last run
+- Automatic post numbering by date (oldest first)
 
 ## Requirements
 
@@ -112,7 +114,38 @@ substack2md https://example.substack.com --browser-path "/path/to/chrome"
 
 # Custom delay between requests (respectful rate limiting)
 substack2md https://example.substack.com --delay-min 2 --delay-max 5
+
+# Continuous/incremental mode - only fetch new posts since last run
+substack2md https://example.substack.com --continuous
 ```
+
+## Continuous Fetching & Post Numbering
+
+### Automatic Post Numbering
+Posts are automatically numbered based on their publication date (oldest first):
+- `01-first-post-title.md`
+- `02-second-post-title.md`
+- `03-latest-post-title.md`
+
+This makes it easy to read posts in chronological order.
+
+### Continuous/Incremental Mode
+Use the `--continuous` or `-c` flag to only fetch new posts since your last run:
+
+```bash
+# First run - fetches all posts
+substack2md https://example.substack.com
+
+# Later runs - only fetches new posts
+substack2md https://example.substack.com --continuous
+```
+
+The tool maintains a `.scraping_state.json` file in the output directory to track:
+- The latest post date and URL
+- The highest number used
+- Previously scraped URLs
+
+This allows you to run the scraper periodically to keep your collection up-to-date without re-downloading existing posts.
 
 ## Output Structure
 
