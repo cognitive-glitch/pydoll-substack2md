@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "substack2md"
-version = "0.3.0"
-description = "A CAPTCHA-safe Python scraper that downloads Substack posts and converts them to Markdown using Pydoll browser automation"
+version = "0.1.1"
+description = "A CAPTCHA-safe Python scraper with Cloudflare bypass that downloads Substack posts and converts them to Markdown. Features automatic CAPTCHA solving, human-like scraping delays, and respectful rate limiting."
 readme = "README.md"
 authors = [{ name = "cognitive-glitch", email = "drivedon02@gmail.com" }]
 license = { text = "MIT" }
@@ -22,7 +22,7 @@ classifiers = [
     "Topic :: Internet :: WWW/HTTP :: Dynamic Content",
     "Topic :: Software Development :: Libraries :: Python Modules",
 ]
-keywords = ["substack", "scraper", "markdown", "newsletter", "pydoll", "async"]
+keywords = ["substack", "scraper", "markdown", "newsletter", "pydoll", "async", "cloudflare-bypass", "captcha", "anti-bot", "web-scraping"]
 
 dependencies = [
     "pydoll-python>=2.2",

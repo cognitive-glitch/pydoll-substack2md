@@ -1,25 +1,67 @@
 # pydoll-substack2md
 
-pydoll-substack2md is a Python tool for downloading free and premium Substack posts and saving them as both Markdown and HTML files, and includes a simple HTML interface to browse and sort through the posts.
+**A CAPTCHA-safe Substack scraper with automatic Cloudflare bypass and human-like behavior**
 
-This project is inspired by and forked from [timf34/Substack2Markdown](https://github.com/timf34/Substack2Markdown), and has been migrated from Selenium to Pydoll for improved performance and reliability.
+pydoll-substack2md is a Python tool for downloading free and premium Substack posts that handles modern web challenges:
 
-The tool creates a folder structure organized by Substack author name, downloads posts as Markdown files, and generates an HTML interface for easy browsing.
+🛡️ **Automatic Cloudflare bypass** - No manual intervention needed
+🤖 **CAPTCHA handling** - Built-in solver for common challenges
+🕰️ **Human-like scraping** - Random delays and respectful rate limiting
+🔒 **Premium content support** - Login capability for paid subscriptions
+📁 **Organized output** - Numbered posts by date, Markdown + HTML formats
 
-## Features
+Built on [Pydoll](https://github.com/pydoll/pydoll), a powerful browser automation library that handles anti-bot measures automatically.
 
-- Converts Substack posts into Markdown files using html-to-markdown
-- Generates an HTML file to browse Markdown files
-- Supports free and premium content (with subscription)
-- The HTML interface allows sorting essays by date or likes
-- Downloads and saves images locally with rate limiting
-- Async architecture for improved performance
-- Direct Chrome DevTools Protocol connection via Pydoll
-- Built-in Cloudflare bypass capability
-- Resource blocking for faster page loads
-- Concurrent post scraping support
-- Continuous/incremental fetching - only download new posts since last run
-- Automatic post numbering by date (oldest first)
+## Key Features
+
+### 🛡️ Anti-Bot Protection Handling
+- **Automatic Cloudflare bypass** - No manual solving needed
+- **CAPTCHA support** - Built-in handling for common challenges
+- **Stealth mode** - Mimics real browser behavior
+- **Smart retries** - Automatic retry with backoff strategies
+
+### 🤖 Human-Like Scraping
+- **Random delays** - Configurable delay ranges between requests
+- **Respectful rate limiting** - Default 1-3 second delays
+- **Browser fingerprinting** - Realistic browser profiles
+- **Session persistence** - Maintains cookies and state
+
+### 📥 Content Management
+- **Markdown conversion** - Clean, readable Markdown files
+- **Image downloading** - Local storage with smart naming
+- **Post numbering** - Chronological ordering (01-oldest to newest)
+- **Continuous updates** - Fetch only new posts on subsequent runs
+- **Premium content** - Login support for paid subscriptions
+
+### ⚡ Performance & Reliability
+- **Concurrent scraping** - Multiple posts at once
+- **Async architecture** - Non-blocking I/O operations
+- **Resource optimization** - Blocks unnecessary assets
+- **Error resilience** - Continues on individual post failures
+
+## How It Handles Protected Sites
+
+### Cloudflare Protection
+When encountering Cloudflare's "Checking your browser" page, pydoll-substack2md:
+1. Automatically detects the challenge
+2. Waits for JavaScript execution
+3. Solves challenges without user intervention
+4. Proceeds with scraping once verified
+
+### CAPTCHA Handling
+The tool uses Pydoll's built-in CAPTCHA solving capabilities:
+```python
+# Automatic handling in the code
+async with tab.expect_and_bypass_cloudflare_captcha():
+    await tab.go_to(url)
+```
+
+### Human-Like Behavior
+To avoid detection and respect servers:
+- Random delays between 1-3 seconds (configurable)
+- Realistic mouse movements and clicks
+- Maintains browser session and cookies
+- Uses real Chrome/Edge browser (not headless by default)
 
 ## Requirements
 

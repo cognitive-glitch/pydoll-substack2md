@@ -118,58 +118,58 @@ class BaseSubstackScraper(ABC):
             urls = self.fetch_urls_from_feed()
         return self.filter_urls(urls, self.keywords)
 
-        def load_scraping_state(self) -> dict[str, Any]:
-            """Load the scraping state from the metadata file."""
-            state_file = os.path.join(self.md_save_dir, ".scraping_state.json")
-            if os.path.exists(state_file):
-                try:
-                    with open(state_file) as f:
-                        return json.load(f)
-                except Exception as e:
-                    print(f"Error loading scraping state: {e}")
-            return {}
-
-        async def save_scraping_state(self, state: dict[str, Any]) -> None:
-            """Save the scraping state to the metadata file."""
-            state_file = os.path.join(self.md_save_dir, ".scraping_state.json")
+    def load_scraping_state(self) -> dict[str, Any]:
+        """Load the scraping state from the metadata file."""
+        state_file = os.path.join(self.md_save_dir, ".scraping_state.json")
+        if os.path.exists(state_file):
             try:
-                async with aiofiles.open(state_file, "w") as f:
-                    await f.write(json.dumps(state, indent=2))
+                with open(state_file) as f:
+                    return json.load(f)
             except Exception as e:
-                print(f"Error saving scraping state: {e}")
+                print(f"Error loading scraping state: {e}")
+        return {}
 
-        def get_existing_posts_info(self) -> tuple[int, set[str], str | None]:
-            """Get information about existing posts: highest number, URLs, and latest date."""
-            highest_number = 0
-            existing_urls = set()
-            latest_date = None
+    async def save_scraping_state(self, state: dict[str, Any]) -> None:
+        """Save the scraping state to the metadata file."""
+        state_file = os.path.join(self.md_save_dir, ".scraping_state.json")
+        try:
+            async with aiofiles.open(state_file, "w") as f:
+                await f.write(json.dumps(state, indent=2))
+        except Exception as e:
+            print(f"Error saving scraping state: {e}")
 
-            # Check for numbered files
-            pattern = os.path.join(self.md_save_dir, "[0-9][0-9]-*.md")
-            numbered_files = glob.glob(pattern)
+    def get_existing_posts_info(self) -> tuple[int, set[str], str | None]:
+        """Get information about existing posts: highest number, URLs, and latest date."""
+        highest_number = 0
+        existing_urls = set()
+        latest_date = None
 
-            for filepath in numbered_files:
-                filename = os.path.basename(filepath)
-                # Extract number from filename
-                try:
-                    number = int(filename[:2])
-                    highest_number = max(highest_number, number)
-                except ValueError:
-                    continue
+        # Check for numbered files
+        pattern = os.path.join(self.md_save_dir, "[0-9][0-9]-*.md")
+        numbered_files = glob.glob(pattern)
 
-                # Extract URL from filename (remove number prefix and .md extension)
-                url_part = filename[3:-3]  # Remove "XX-" prefix and ".md" suffix
-                existing_urls.add(url_part)
+        for filepath in numbered_files:
+            filename = os.path.basename(filepath)
+            # Extract number from filename
+            try:
+                number = int(filename[:2])
+                highest_number = max(highest_number, number)
+            except ValueError:
+                continue
 
-            # Load state file for additional info
-            state = self.load_scraping_state()
-            if state:
-                latest_date = state.get("latest_post_date")
-                # Also add URLs from state file
-                if "scraped_urls" in state:
-                    existing_urls.update(state["scraped_urls"])
+            # Extract URL from filename (remove number prefix and .md extension)
+            url_part = filename[3:-3]  # Remove "XX-" prefix and ".md" suffix
+            existing_urls.add(url_part)
 
-            return highest_number, existing_urls, latest_date
+        # Load state file for additional info
+        state = self.load_scraping_state()
+        if state:
+            latest_date = state.get("latest_post_date")
+            # Also add URLs from state file
+            if "scraped_urls" in state:
+                existing_urls.update(state["scraped_urls"])
+
+        return highest_number, existing_urls, latest_date
 
     def fetch_urls_from_sitemap(self) -> list[str]:
         """Fetches URLs from sitemap.xml."""
@@ -508,7 +508,7 @@ class BaseSubstackScraper(ABC):
                             try:
                                 parsed_date = dateutil.parser.parse(date_elem.text.strip())
                                 date_str = parsed_date.isoformat()
-                            except:
+                            except Exception:
                                 date_str = date_elem.text.strip()
                             break
 
@@ -1034,7 +1034,7 @@ class PydollSubstackScraper(BaseSubstackScraper):
                             try:
                                 parsed_date = dateutil.parser.parse(date_elem.text.strip())
                                 date_str = parsed_date.isoformat()
-                            except:
+                            except Exception:
                                 date_str = date_elem.text.strip()
                             break
 
@@ -1336,13 +1336,6 @@ async def main():
         await scraper.scrape_posts(num_posts_to_scrape=args.number or NUM_POSTS_TO_SCRAPE, continuous=args.continuous)
 
     print("Scraping completed!")
-
-    parser.add_argument(
-        "--continuous",
-        "-c",
-        action="store_true",
-        help="Enable continuous/incremental fetching mode - only scrape new posts since last run",
-    )
 
 
 def run():
