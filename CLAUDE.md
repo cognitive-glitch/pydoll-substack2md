@@ -61,12 +61,17 @@ pip install -e .
    - HTML extraction from Substack posts
    - Conversion to Markdown using html-to-markdown library
    - Metadata extraction (date, likes, title)
+   - Image downloading with rate limiting
+   - Local image path replacement in content
    - JSON data generation for HTML interface
    - Async file operations throughout
 
 ### Directory Structure
 ```
 ├── substack_md_files/      # Markdown output (organized by author)
+│   └── {author_name}/      # Author-specific folder
+│       ├── images/         # Downloaded images
+│       └── *.md           # Markdown posts
 ├── substack_html_pages/    # HTML browsing interface
 ├── data/                   # JSON metadata files
 └── assets/                 # CSS/JS for HTML interface

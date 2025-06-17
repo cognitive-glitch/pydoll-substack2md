@@ -3,12 +3,13 @@ import asyncio
 import json
 import os
 import random
+import re
 import sys
 from abc import ABC, abstractmethod
 
 # from functools import partial  # Unused import removed
 from typing import Any
-from urllib.parse import urlparse
+from urllib.parse import urljoin, urlparse
 from xml.etree import ElementTree as ET
 
 import aiofiles
@@ -95,6 +96,11 @@ class BaseSubstackScraper(ABC):
         print(f"Created md directory {md_save_dir}")
         os.makedirs(self.html_save_dir, exist_ok=True)
         print(f"Created html directory {self.html_save_dir}")
+
+        # Create images directory
+        self.images_dir = os.path.join(md_save_dir, "images")
+        os.makedirs(self.images_dir, exist_ok=True)
+        print(f"Created images directory {self.images_dir}")
 
         self.keywords = ["about", "archive", "podcast"]
         self.post_urls = self.get_all_post_urls()
@@ -235,7 +241,64 @@ class BaseSubstackScraper(ABC):
         metadata += f"**Likes:** {like_count}\n\n"
         return metadata + content
 
-    def extract_post_data(self, soup: BeautifulSoup) -> tuple[str, str, str, str, str]:
+    async def download_image(self, img_url: str, post_title: str) -> str:
+        """Download image and return local path."""
+        try:
+            # Clean the post title for use in filename
+            safe_title = re.sub(r"[^\w\s-]", "", post_title).strip()
+            safe_title = re.sub(r"[-\s]+", "-", safe_title)[:50]  # Limit length
+
+            # Extract image extension
+            parsed_url = urlparse(img_url)
+            path = parsed_url.path
+            ext = os.path.splitext(path)[1] or ".jpg"
+
+            # Create unique filename
+            img_hash = str(hash(img_url))[-8:]  # Last 8 chars of hash for uniqueness
+            filename = f"{safe_title}_{img_hash}{ext}"
+            local_path = os.path.join(self.images_dir, filename)
+
+            # Check if already downloaded
+            if os.path.exists(local_path):
+                return f"images/{filename}"
+
+            # Download with rate limiting
+            print(f"  Downloading image: {filename}")
+            response = requests.get(img_url, headers={"User-Agent": USER_AGENT}, timeout=30)
+            response.raise_for_status()
+
+            # Save image
+            with open(local_path, "wb") as f:
+                f.write(response.content)
+
+            # Add delay for rate limiting
+            delay = random.uniform(0.5, 1.5)  # Shorter delay for images
+            await asyncio.sleep(delay)
+
+            return f"images/{filename}"
+        except Exception as e:
+            print(f"  Error downloading image {img_url}: {e}")
+        return img_url  # Return original URL on error
+
+    async def process_images_in_content(self, content: str, post_title: str) -> str:
+        """Process all images in content and replace with local paths."""
+        soup = BeautifulSoup(content, "html.parser")
+        images = soup.find_all("img")
+
+        for img in images:
+            src = img.get("src")
+            if src:
+                # Make URL absolute if relative
+                if not src.startswith(("http://", "https://")):
+                    src = urljoin(self.base_substack_url, src)
+
+                # Download image and get local path
+                local_path = await self.download_image(src, post_title)
+                img["src"] = local_path
+
+        return str(soup)
+
+    async def extract_post_data(self, soup: BeautifulSoup, url: str) -> tuple[str, str, str, str, str]:
         """Extracts post data from BeautifulSoup object."""
         # Title extraction
         title_elem = soup.select_one("h1.post-title, h2")
@@ -275,6 +338,10 @@ class BaseSubstackScraper(ABC):
         if not content_elem:
             content_elem = soup.select_one("article")
         content = str(content_elem) if content_elem else ""
+
+        # Process images before converting to markdown
+        print(f"Processing images for: {title}")
+        content = await self.process_images_in_content(content, title)
 
         md = self.html_to_md(content)
         md_content = self.combine_metadata_and_content(title, subtitle, date, like_count, md)
@@ -328,7 +395,7 @@ class BaseSubstackScraper(ABC):
                         pbar.update(1)
                         continue
 
-                    title, subtitle, like_count, date, md = self.extract_post_data(soup)
+                    title, subtitle, like_count, date, md = await self.extract_post_data(soup, url)
                     await self.save_to_file(md_filepath, md)
 
                     # Convert markdown to HTML and save
@@ -380,6 +447,7 @@ class PydollSubstackScraper(BaseSubstackScraper):
         browser_path: str = "",
         user_agent: str = "",
         delay_range: tuple[int, int] = (1, 3),
+        manual_login: bool = False,
     ):
         super().__init__(base_substack_url, md_save_dir, html_save_dir, delay_range)
         self.headless = headless
@@ -389,6 +457,7 @@ class PydollSubstackScraper(BaseSubstackScraper):
         self.tab = None
         self.auth_token = None
         self.is_logged_in = False
+        self.manual_login = manual_login
 
     async def initialize_browser(self):
         """Initialize Pydoll browser with options."""
@@ -492,6 +561,48 @@ class PydollSubstackScraper(BaseSubstackScraper):
             self.is_logged_in = True
             print("Login successful!")
 
+        async def perform_manual_login(self) -> None:
+            """Manual login mode - opens login page and waits for user to login manually."""
+            if self.tab is None:
+                raise RuntimeError("Browser not initialized. Call initialize_browser() first.")
+
+            print("Opening Substack login page for manual login...")
+            print("You will be able to login manually in the browser window.")
+
+            # Navigate to login page
+            await self.tab.go_to("https://substack.com/sign-in")
+
+            # Wait for page to load
+            await asyncio.sleep(2)
+
+            print("\n" + "=" * 60)
+            print("MANUAL LOGIN MODE")
+            print("=" * 60)
+            print("1. The browser should now show the Substack login page")
+            print("2. Please login manually in the browser window")
+            print("3. You can use any login method (email/password, Google, etc.)")
+            print("4. Once you're logged in, press Enter to continue...")
+            print("=" * 60)
+
+            # Pause for manual login
+            input("Press Enter after you have successfully logged in: ")
+
+            # Verify login by checking for common logged-in elements
+            print("Verifying login status...")
+
+            # Check for user menu or profile indicators
+            user_menu = await self.tab.find(class_name="user-menu", timeout=3, raise_exc=False)
+            profile_link = await self.tab.find(xpath="//a[contains(@href, '/profile')]", timeout=3, raise_exc=False)
+            settings_link = await self.tab.find(xpath="//a[contains(@href, '/account')]", timeout=3, raise_exc=False)
+
+            if user_menu or profile_link or settings_link:
+                self.is_logged_in = True
+                print("✓ Login verification successful!")
+            else:
+                print("⚠ Warning: Could not verify login status. Continuing anyway...")
+                print("If you encounter access issues with premium content, please try again.")
+                self.is_logged_in = True  # Assume successful for manual mode
+
     async def get_url_soup(self, url: str) -> BeautifulSoup | None:
         """Get BeautifulSoup from URL using Pydoll."""
         if self.tab is None:
@@ -502,8 +613,26 @@ class PydollSubstackScraper(BaseSubstackScraper):
             async with self.tab.expect_and_bypass_cloudflare_captcha():
                 await self.tab.go_to(url)
 
-            # Wait for content to load
+            # Wait for content to load - multiple strategies for thorough loading
+            print("  Waiting for page to fully load...")
+
+            # 1. Wait for network to be idle
             await self.tab.wait_for_load_state("networkidle")  # type: ignore
+
+            # 2. Wait for specific content indicators
+            content_loaded = False
+            for selector in ["div.available-content", "article", "div.post-content"]:
+                content_elem = await self.tab.find(class_name=selector.replace(".", ""), timeout=5, raise_exc=False)
+                if content_elem:
+                    content_loaded = True
+                    break
+
+            # 3. Additional wait for dynamic content
+            if content_loaded:
+                await asyncio.sleep(2)  # Give extra time for images/dynamic content
+
+            # 4. Wait for images to start loading
+            await self.tab.wait_for_load_state("domcontentloaded")  # type: ignore
 
             # Check for paywall
             paywall = await self.tab.find(tag_name="h2", class_name="paywall-title", raise_exc=False)
@@ -525,8 +654,11 @@ class PydollSubstackScraper(BaseSubstackScraper):
             await self.initialize_browser()
 
             # Login if premium scraping is enabled
-            if USE_PREMIUM or (SUBSTACK_EMAIL and SUBSTACK_PASSWORD):
-                await self.login()
+            if USE_PREMIUM or (SUBSTACK_EMAIL and SUBSTACK_PASSWORD) or self.manual_login:
+                if self.manual_login:
+                    await self.perform_manual_login()
+                else:
+                    await self.login()
 
             # Call parent scrape_posts
             await super().scrape_posts(num_posts_to_scrape)
@@ -540,8 +672,11 @@ class PydollSubstackScraper(BaseSubstackScraper):
         try:
             await self.initialize_browser()
 
-            if USE_PREMIUM or (SUBSTACK_EMAIL and SUBSTACK_PASSWORD):
-                await self.login()
+            if USE_PREMIUM or (SUBSTACK_EMAIL and SUBSTACK_PASSWORD) or self.manual_login:
+                if self.manual_login:
+                    await self.perform_manual_login()
+                else:
+                    await self.login()
 
             essays_data: list[dict[str, Any]] = []
             urls_to_scrape = self.post_urls[:num_posts_to_scrape] if num_posts_to_scrape else self.post_urls
@@ -597,7 +732,18 @@ class PydollSubstackScraper(BaseSubstackScraper):
             try:
                 # Navigate to post
                 await tab.go_to(url)
+
+                # Wait for full page load
+                print("  Waiting for page to fully load...")
                 await tab.wait_for_load_state("networkidle")  # type: ignore
+
+                # Wait for content to be available
+                content_elem = await tab.find(class_name="available-content", timeout=10, raise_exc=False)
+                if not content_elem:
+                    content_elem = await tab.find(tag_name="article", timeout=5, raise_exc=False)
+
+                # Additional wait for dynamic content
+                await asyncio.sleep(2)
 
                 # Check for paywall
                 paywall = await tab.find(tag_name="h2", class_name="paywall-title", raise_exc=False)
@@ -609,7 +755,7 @@ class PydollSubstackScraper(BaseSubstackScraper):
                 page_source = await tab.page_source
                 soup = BeautifulSoup(page_source, "html.parser")
 
-                title, subtitle, like_count, date, md = self.extract_post_data(soup)
+                title, subtitle, like_count, date, md = await self.extract_post_data(soup, url)
                 await self.save_to_file(md_filepath, md)
 
                 # Convert markdown to HTML and save
@@ -645,6 +791,9 @@ Examples:
 
   # Scrape with login for premium content
   pydoll-substack2md https://example.substack.com -l
+
+  # Manual login mode (works with any login method)
+  pydoll-substack2md https://example.substack.com --manual-login
 
   # Scrape only 10 posts
   pydoll-substack2md https://example.substack.com -n 10
@@ -685,6 +834,11 @@ Examples:
         "--login",
         action="store_true",
         help="Login to Substack for premium content (requires SUBSTACK_EMAIL and SUBSTACK_PASSWORD in .env)",
+    )
+    parser.add_argument(
+        "--manual-login",
+        action="store_true",
+        help="Open login page and pause for manual login (works with any login method)",
     )
     parser.add_argument(
         "--headless",
@@ -748,6 +902,13 @@ async def main():
 
     # Determine if we should use premium scraping
     use_login = args.login or USE_PREMIUM or (SUBSTACK_EMAIL and SUBSTACK_PASSWORD)
+    use_manual_login = args.manual_login
+
+    # Validate manual login with headless mode
+    if use_manual_login and (args.headless or HEADLESS):
+        print("Error: Manual login mode cannot be used with headless mode")
+        print("Either remove --manual-login or remove --headless")
+        sys.exit(1)
 
     # Validate delay parameters
     if args.delay_min > args.delay_max:
@@ -756,6 +917,7 @@ async def main():
 
     print(f"Scraping: {url}")
     print(f"Login enabled: {use_login}")
+    print(f"Manual login mode: {use_manual_login}")
     print(f"Headless mode: {args.headless or HEADLESS}")
     print(f"Delay range: {args.delay_min}-{args.delay_max} seconds")
 
@@ -767,6 +929,7 @@ async def main():
         browser_path=args.browser_path or BROWSER_PATH,
         user_agent=args.user_agent or USER_AGENT,
         delay_range=(args.delay_min, args.delay_max),
+        manual_login=use_manual_login,
     )
 
     if args.concurrent:

@@ -12,6 +12,7 @@ The tool creates a folder structure organized by Substack author name, downloads
 - Generates an HTML file to browse Markdown files
 - Supports free and premium content (with subscription)
 - The HTML interface allows sorting essays by date or likes
+- Downloads and saves images locally with rate limiting
 - Async architecture for improved performance
 - Direct Chrome DevTools Protocol connection via Pydoll
 - Built-in Cloudflare bypass capability
@@ -43,6 +44,9 @@ uv run substack2md https://example.substack.com
 
 # With login for premium content
 uv run substack2md https://example.substack.com --login
+
+# Manual login mode (works with any login method)
+uv run substack2md https://example.substack.com --manual-login
 
 # Run with custom options
 uv run substack2md https://example.substack.com -n 10 --headless
@@ -125,12 +129,28 @@ uv run substack2md https://example.substack.com --delay-min 2 --delay-max 5
 After running the tool, you'll find:
 
 ```
+├── substack_md_files/      # Markdown versions of posts
+│   └── {author_name}/      # Organized by Substack author
+│       ├── images/         # Downloaded images for posts
+│       │   ├── image1.jpg
+│       │   └── image2.png
+│       ├── post1.md
+│       ├── post2.md
+│       └── ...
+├── substack_html_pages/    # HTML versions for browsing
+│   └── {author_name}.html  # Single HTML file per author
+├── data/                   # JSON metadata files
+└── assets/                 # CSS/JS for HTML interface
+```
 pydoll-substack2md/
 ├── substack_md_files/          # Markdown files organized by author
 │   └── author-name/
 │       ├── post-title-1.md
 │       ├── post-title-2.md
-│       └── ...
+│       ├── ...
+│       └── images/             # Downloaded images from posts
+│           ├── image1.jpg
+│           └── image2.png
 ├── substack_html_pages/        # HTML interface for browsing
 │   └── author-name.html
 └── data/                       # JSON metadata for the HTML interface
