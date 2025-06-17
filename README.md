@@ -115,6 +115,9 @@ uv run substack2md https://example.substack.com -d ./posts --html-directory ./ht
 
 # Custom browser path
 uv run substack2md https://example.substack.com --browser-path "/path/to/chrome"
+
+# Custom delay between requests (respectful rate limiting)
+uv run substack2md https://example.substack.com --delay-min 2 --delay-max 5
 ```
 
 ## Output Structure

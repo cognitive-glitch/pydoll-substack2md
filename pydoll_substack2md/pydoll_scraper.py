@@ -2,6 +2,7 @@ import argparse
 import asyncio
 import json
 import os
+import random
 import sys
 from abc import ABC, abstractmethod
 
@@ -30,7 +31,7 @@ SUBSTACK_EMAIL = os.getenv("SUBSTACK_EMAIL", "")
 SUBSTACK_PASSWORD = os.getenv("SUBSTACK_PASSWORD", "")
 USE_PREMIUM = os.getenv("USE_PREMIUM", "false").lower() == "true"
 BASE_SUBSTACK_URL = os.getenv("DEFAULT_SUBSTACK_URL", "https://www.thefitzwilliam.com/")
-NUM_POSTS_TO_SCRAPE = int(os.getenv("NUM_POSTS_TO_SCRAPE", "3"))
+NUM_POSTS_TO_SCRAPE = int(os.getenv("NUM_POSTS_TO_SCRAPE", "0"))
 HEADLESS = os.getenv("HEADLESS", "false").lower() == "true"  # Default to non-headless for user intervention
 BROWSER_PATH = os.getenv("BROWSER_PATH", "")
 USER_AGENT = os.getenv("USER_AGENT", "")
@@ -77,7 +78,9 @@ async def generate_html_file(author_name: str) -> None:
 class BaseSubstackScraper(ABC):
     """Abstract base class for Substack scrapers."""
 
-    def __init__(self, base_substack_url: str, md_save_dir: str, html_save_dir: str):
+    def __init__(
+        self, base_substack_url: str, md_save_dir: str, html_save_dir: str, delay_range: tuple[int, int] = (1, 3)
+    ):
         if not base_substack_url.endswith("/"):
             base_substack_url += "/"
         self.base_substack_url = base_substack_url
@@ -95,6 +98,9 @@ class BaseSubstackScraper(ABC):
 
         self.keywords = ["about", "archive", "podcast"]
         self.post_urls = self.get_all_post_urls()
+
+        # Delay configuration for rate limiting
+        self.delay_range = delay_range
 
     def get_all_post_urls(self) -> list[str]:
         """Attempts to fetch URLs from sitemap.xml, falling back to feed.xml if necessary."""
@@ -339,6 +345,12 @@ class BaseSubstackScraper(ABC):
                             "html_link": html_filepath,
                         }
                     )
+
+                    # Add random delay between scraping posts to be respectful to servers
+                    delay = random.uniform(self.delay_range[0], self.delay_range[1])
+                    print(f"Waiting {delay:.1f} seconds before next request...")
+                    await asyncio.sleep(delay)
+
                 else:
                     print(f"File already exists: {md_filepath}")
             except Exception as e:
@@ -367,8 +379,9 @@ class PydollSubstackScraper(BaseSubstackScraper):
         headless: bool = False,
         browser_path: str = "",
         user_agent: str = "",
+        delay_range: tuple[int, int] = (1, 3),
     ):
-        super().__init__(base_substack_url, md_save_dir, html_save_dir)
+        super().__init__(base_substack_url, md_save_dir, html_save_dir, delay_range)
         self.headless = headless
         self.browser_path = browser_path
         self.user_agent = user_agent
@@ -551,6 +564,12 @@ class PydollSubstackScraper(BaseSubstackScraper):
                     elif isinstance(result, Exception):
                         print(f"Error in concurrent scraping: {result}")
 
+                # Add delay between batches to be respectful to servers
+                if i + max_concurrent < len(urls_to_scrape):
+                    delay = random.uniform(self.delay_range[0], self.delay_range[1])
+                    print(f"Batch completed. Waiting {delay:.1f} seconds before next batch...")
+                    await asyncio.sleep(delay)
+
             await self.save_essays_data_to_json(essays_data)
             await generate_html_file(self.writer_name)
 
@@ -635,6 +654,9 @@ Examples:
 
   # Use concurrent scraping
   pydoll-substack2md https://example.substack.com --concurrent
+
+  # Custom delay between requests (1-5 seconds)
+  pydoll-substack2md https://example.substack.com --delay-min 1 --delay-max 5
 """,
     )
 
@@ -698,6 +720,18 @@ Examples:
         default=3,
         help="Maximum concurrent scraping tasks (default: 3)",
     )
+    parser.add_argument(
+        "--delay-min",
+        type=float,
+        default=1.0,
+        help="Minimum delay between requests in seconds (default: 1.0)",
+    )
+    parser.add_argument(
+        "--delay-max",
+        type=float,
+        default=3.0,
+        help="Maximum delay between requests in seconds (default: 3.0)",
+    )
 
     return parser.parse_args()
 
@@ -715,9 +749,15 @@ async def main():
     # Determine if we should use premium scraping
     use_login = args.login or USE_PREMIUM or (SUBSTACK_EMAIL and SUBSTACK_PASSWORD)
 
+    # Validate delay parameters
+    if args.delay_min > args.delay_max:
+        print("Error: --delay-min cannot be greater than --delay-max")
+        sys.exit(1)
+
     print(f"Scraping: {url}")
     print(f"Login enabled: {use_login}")
     print(f"Headless mode: {args.headless or HEADLESS}")
+    print(f"Delay range: {args.delay_min}-{args.delay_max} seconds")
 
     scraper = PydollSubstackScraper(
         base_substack_url=url,
@@ -726,6 +766,7 @@ async def main():
         headless=args.headless or HEADLESS,
         browser_path=args.browser_path or BROWSER_PATH,
         user_agent=args.user_agent or USER_AGENT,
+        delay_range=(args.delay_min, args.delay_max),
     )
 
     if args.concurrent:

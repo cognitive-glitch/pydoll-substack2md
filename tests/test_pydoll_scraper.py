@@ -1,7 +1,10 @@
 import os
+from pathlib import Path
+
+# type: ignore (test file with pytest - complex typing)
 from unittest.mock import AsyncMock, patch
 
-import pytest
+import pytest  # type: ignore
 from bs4 import BeautifulSoup
 
 from pydoll_substack2md.pydoll_scraper import (
@@ -30,12 +33,12 @@ class TestExtractMainPart:
 class TestBaseSubstackScraper:
     """Test the BaseSubstackScraper abstract base class."""
 
-    @pytest.fixture
-    def scraper(self, tmp_path):
+    @pytest.fixture  # type: ignore
+    def scraper(self, tmp_path: Path) -> BaseSubstackScraper:
         """Create a concrete implementation for testing."""
 
         class TestScraper(BaseSubstackScraper):
-            async def get_url_soup(self, url):
+            async def get_url_soup(self, url: str) -> BeautifulSoup:
                 return BeautifulSoup("<html></html>", "html.parser")
 
         return TestScraper("https://test.substack.com", str(tmp_path / "md"), str(tmp_path / "html"))
@@ -90,13 +93,13 @@ class TestBaseSubstackScraper:
 class TestPydollSubstackScraper:
     """Test the PydollSubstackScraper implementation."""
 
-    @pytest.fixture
-    def scraper(self, tmp_path):
+    @pytest.fixture  # type: ignore
+    def scraper(self, tmp_path: Path) -> BaseSubstackScraper:
         return PydollSubstackScraper(
             "https://test.substack.com", str(tmp_path / "md"), str(tmp_path / "html"), headless=True
         )
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio  # type: ignore  # type: ignore
     async def test_initialize_browser(self, scraper):
         """Test browser initialization."""
         with patch("pydoll_substack2md.pydoll_scraper.Chrome") as MockChrome:
@@ -112,12 +115,12 @@ class TestPydollSubstackScraper:
             mock_tab.enable_network_events.assert_called_once()
 
     # Resource blocking test removed - feature temporarily disabled
-    # @pytest.mark.asyncio
+    # @pytest.mark.asyncio  # type: ignore
     # async def test_setup_resource_blocking(self, scraper):
     #     \"\"\"Test resource blocking setup.\"\"\"
     #     pass
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio  # type: ignore  # type: ignore
     async def test_login_without_credentials(self, scraper):
         """Test login when no credentials are provided."""
         with patch.dict(os.environ, {"SUBSTACK_EMAIL": "", "SUBSTACK_PASSWORD": ""}):
@@ -125,7 +128,7 @@ class TestPydollSubstackScraper:
             await scraper.login()
             assert not scraper.is_logged_in
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio  # type: ignore  # type: ignore
     async def test_get_url_soup_success(self, scraper):
         """Test successful URL scraping."""
         scraper.tab = AsyncMock()
@@ -137,7 +140,7 @@ class TestPydollSubstackScraper:
         assert soup is not None
         assert soup.find("h1").text == "Test"
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio  # type: ignore  # type: ignore
     async def test_get_url_soup_paywall(self, scraper):
         """Test URL scraping when hitting a paywall."""
         scraper.tab = AsyncMock()
@@ -149,7 +152,7 @@ class TestPydollSubstackScraper:
 
         assert soup is None
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio  # type: ignore  # type: ignore
     async def test_scrape_single_post(self, scraper, tmp_path):
         """Test scraping a single post."""
         scraper.browser = AsyncMock()
@@ -177,7 +180,7 @@ class TestPydollSubstackScraper:
         mock_tab.close.assert_called_once()
 
 
-@pytest.mark.asyncio
+@pytest.mark.asyncio  # type: ignore
 async def test_html_to_markdown_conversion():
     """Test the html-to-markdown conversion."""
     html = """
@@ -205,7 +208,7 @@ def hello():
     assert "```python" in markdown or "def hello():" in markdown
 
 
-@pytest.mark.asyncio
+@pytest.mark.asyncio  # type: ignore
 async def test_concurrent_scraping():
     """Test concurrent post scraping."""
     scraper = PydollSubstackScraper("https://test.substack.com", "/tmp/md", "/tmp/html", headless=True)
@@ -227,4 +230,4 @@ async def test_concurrent_scraping():
 
 
 if __name__ == "__main__":
-    pytest.main([__file__, "-v"])
+    pytest.main([__file__, "-v"])  # type: ignore
