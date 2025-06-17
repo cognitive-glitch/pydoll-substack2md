@@ -14,28 +14,29 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Commands
 
-### Install Dependencies
+### Quick Start with uv (No Installation Needed!)
 ```bash
-# Using pip
-pip install -e .
-
-# Or install from requirements
-pip install -r requirements.txt
-```
-
-### Run Scraper
-```bash
-# Free posts only
-pydoll-substack2md <substack_url>
+# Run directly with uv - it handles all dependencies automatically
+uv run pydoll-substack2md <substack_url>
 
 # With login for premium content
-pydoll-substack2md <substack_url> -l
+uv run pydoll-substack2md <substack_url> -l
 
 # Limit number of posts
-pydoll-substack2md <substack_url> -n 10
+uv run pydoll-substack2md <substack_url> -n 10
 
 # Run in headless mode (default is non-headless)
-pydoll-substack2md <substack_url> --headless
+uv run pydoll-substack2md <substack_url> --headless
+```
+
+### Traditional Installation
+```bash
+# Using uv
+uv venv
+uv pip install -e .
+
+# Using pip
+pip install -e .
 ```
 
 ## Architecture
@@ -253,3 +254,44 @@ Core dependencies for the project:
 - `websockets`: WebSocket communication (required by Pydoll)
 - `python-dotenv`: Environment variable management
 - `markdown`: Markdown to HTML conversion for preview pages
+
+## Testing & Development
+
+### Running Tests
+
+```bash
+# Using uv (recommended)
+uv run pytest
+uv run pytest -v  # Verbose output
+uv run pytest tests/test_pydoll_scraper.py  # Specific test file
+
+# Traditional approach
+pytest
+pytest -v
+```
+
+### Code Quality Tools
+
+```bash
+# Format code
+uv run black .
+
+# Lint code
+uv run ruff check .
+uv run ruff check . --fix  # Auto-fix issues
+
+# Type checking
+uv run pyright
+
+# Run all pre-commit hooks
+pre-commit run --all-files
+```
+
+### Development Workflow
+
+1. **Make changes** to the code
+2. **Run tests**: `uv run pytest`
+3. **Format code**: `uv run black .`
+4. **Fix linting issues**: `uv run ruff check . --fix`
+5. **Type check**: `uv run pyright`
+6. **Commit changes** with pre-commit hooks active

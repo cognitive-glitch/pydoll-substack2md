@@ -24,6 +24,8 @@ share/python-wheels/
 .installed.cfg
 *.egg
 MANIFEST
+*.json
+*.lock
 
 # Virtual environments
 venv/
@@ -52,7 +54,6 @@ htmlcov/
 .vscode/
 *.swp
 *.swo
-*~
 
 # Ignore all files in data/ except README.md
 data/

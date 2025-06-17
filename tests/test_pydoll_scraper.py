@@ -111,17 +111,11 @@ class TestPydollSubstackScraper:
             assert scraper.tab == mock_tab
             mock_tab.enable_network_events.assert_called_once()
 
-    @pytest.mark.asyncio
-    async def test_setup_resource_blocking(self, scraper):
-        """Test resource blocking setup."""
-        scraper.tab = AsyncMock()
-        scraper.browser = AsyncMock()
-
-        await scraper.setup_resource_blocking()
-
-        # Should enable fetch events for images, fonts, and media
-        assert scraper.tab.enable_fetch_events.call_count == 3
-        scraper.tab.on.assert_called_once()
+    # Resource blocking test removed - feature temporarily disabled
+    # @pytest.mark.asyncio
+    # async def test_setup_resource_blocking(self, scraper):
+    #     \"\"\"Test resource blocking setup.\"\"\"
+    #     pass
 
     @pytest.mark.asyncio
     async def test_login_without_credentials(self, scraper):
@@ -216,19 +210,20 @@ async def test_concurrent_scraping():
     """Test concurrent post scraping."""
     scraper = PydollSubstackScraper("https://test.substack.com", "/tmp/md", "/tmp/html", headless=True)
 
-    # Mock the scraper methods
-    scraper.initialize_browser = AsyncMock()
-    scraper.browser = AsyncMock()
-    scraper.scrape_single_post = AsyncMock(return_value={"title": "Test"})
-    scraper.save_essays_data_to_json = AsyncMock()
-    scraper.post_urls = ["url1", "url2", "url3"]
+    # Mock the scraper methods using patch
+    with patch.object(scraper, "initialize_browser", new_callable=AsyncMock):
+        with patch.object(scraper, "scrape_single_post", new_callable=AsyncMock) as mock_scrape:
+            mock_scrape.return_value = {"title": "Test"}
+            with patch.object(scraper, "save_essays_data_to_json", new_callable=AsyncMock):
+                scraper.browser = AsyncMock()
+                scraper.post_urls = ["url1", "url2", "url3"]
 
-    with patch("pydoll_substack2md.pydoll_scraper.generate_html_file", new_callable=AsyncMock):
-        await scraper.scrape_posts_concurrently(max_concurrent=2)
+                with patch("pydoll_substack2md.pydoll_scraper.generate_html_file", new_callable=AsyncMock):
+                    await scraper.scrape_posts_concurrently(max_concurrent=2)
 
-    # Should have called scrape_single_post for each URL
-    assert scraper.scrape_single_post.call_count == 3
-    scraper.browser.stop.assert_called_once()
+                # Should have called scrape_single_post for each URL
+                assert mock_scrape.call_count == 3
+                scraper.browser.stop.assert_called_once()
 
 
 if __name__ == "__main__":
