@@ -286,15 +286,16 @@ class BaseSubstackScraper(ABC):
         images = soup.find_all("img")
 
         for img in images:
-            src = img.get("src")
-            if src:
-                # Make URL absolute if relative
-                if not src.startswith(("http://", "https://")):
-                    src = urljoin(self.base_substack_url, src)
+            if hasattr(img, "get") and hasattr(img, "__setitem__"):  # Type guard for Tag
+                src = img.get("src")  # type: ignore
+                if src and isinstance(src, str):  # Type guard
+                    # Make URL absolute if relative
+                    if not src.startswith(("http://", "https://")):
+                        src = urljoin(self.base_substack_url, src)
 
-                # Download image and get local path
-                local_path = await self.download_image(src, post_title)
-                img["src"] = local_path
+                    # Download image and get local path
+                    local_path = await self.download_image(src, post_title)
+                    img["src"] = local_path  # type: ignore
 
         return str(soup)
 
@@ -561,47 +562,48 @@ class PydollSubstackScraper(BaseSubstackScraper):
             self.is_logged_in = True
             print("Login successful!")
 
-        async def perform_manual_login(self) -> None:
-            """Manual login mode - opens login page and waits for user to login manually."""
-            if self.tab is None:
-                raise RuntimeError("Browser not initialized. Call initialize_browser() first.")
+    async def perform_manual_login(self) -> None:
+        """Manual login mode - opens login page and waits for user to login manually."""
+        if self.tab is None:
+            raise RuntimeError("Browser not initialized. Call initialize_browser() first.")
 
-            print("Opening Substack login page for manual login...")
-            print("You will be able to login manually in the browser window.")
+        print("Opening Substack login page for manual login...")
+        print("You will be able to login manually in the browser window.")
 
-            # Navigate to login page
-            await self.tab.go_to("https://substack.com/sign-in")
+        # Navigate to login page
+        await self.tab.go_to("https://substack.com/sign-in")
 
-            # Wait for page to load
-            await asyncio.sleep(2)
+        # Wait for page to load
+        await asyncio.sleep(2)
 
-            print("\n" + "=" * 60)
-            print("MANUAL LOGIN MODE")
-            print("=" * 60)
-            print("1. The browser should now show the Substack login page")
-            print("2. Please login manually in the browser window")
-            print("3. You can use any login method (email/password, Google, etc.)")
-            print("4. Once you're logged in, press Enter to continue...")
-            print("=" * 60)
+        print("\n" + "=" * 60)
+        print("MANUAL LOGIN MODE")
+        print("=" * 60)
+        print("1. The browser should now show the Substack login page")
+        print("2. Please login manually in the browser window")
+        print("3. You can use any login method (email/password, Google, etc.)")
+        print("4. Once you're logged in, press Enter to continue...")
+        print("=" * 60)
 
-            # Pause for manual login
-            input("Press Enter after you have successfully logged in: ")
+        # Pause for manual login
+        input("Press Enter after you have successfully logged in: ")
 
-            # Verify login by checking for common logged-in elements
-            print("Verifying login status...")
+        # Verify login by checking for common logged-in elements
+        print("Verifying login status...")
 
-            # Check for user menu or profile indicators
-            user_menu = await self.tab.find(class_name="user-menu", timeout=3, raise_exc=False)
-            profile_link = await self.tab.find(xpath="//a[contains(@href, '/profile')]", timeout=3, raise_exc=False)
-            settings_link = await self.tab.find(xpath="//a[contains(@href, '/account')]", timeout=3, raise_exc=False)
+        # Check for user menu or profile indicators
+        user_menu = await self.tab.find(class_name="user-menu", timeout=3, raise_exc=False)
+        # For now, just check for user menu as profile/settings links might vary
+        profile_link = None
+        settings_link = None
 
-            if user_menu or profile_link or settings_link:
-                self.is_logged_in = True
-                print("✓ Login verification successful!")
-            else:
-                print("⚠ Warning: Could not verify login status. Continuing anyway...")
-                print("If you encounter access issues with premium content, please try again.")
-                self.is_logged_in = True  # Assume successful for manual mode
+        if user_menu or profile_link or settings_link:
+            self.is_logged_in = True
+            print("✓ Login verification successful!")
+        else:
+            print("⚠ Warning: Could not verify login status. Continuing anyway...")
+            print("If you encounter access issues with premium content, please try again.")
+            self.is_logged_in = True  # Assume successful for manual mode
 
     async def get_url_soup(self, url: str) -> BeautifulSoup | None:
         """Get BeautifulSoup from URL using Pydoll."""
