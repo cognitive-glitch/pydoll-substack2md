@@ -444,9 +444,13 @@ class BaseSubstackScraper(ABC):
         # Date extraction - try multiple selectors
         date = "Date not found"
         date_selectors = [
-            # Very specific selector for Substack's current date structure
-            "div.byline-wrapper div.pencraft.pc-display-flex.pc-gap-4 > div:first-child",  # The first div in the date container
-            "div[class*='color-pub-secondary-text'][class*='meta-']:not(:has(*))",  # Meta div without children
+            # Very specific selector for the date div in byline-wrapper
+            # Target the date-containing div that has classes like 'color-pub-secondary-text-*'
+            "div.byline-wrapper div[class*='color-pub-secondary-text'] > div",
+            # More specific: the innermost div that contains the date text
+            "div.byline-wrapper div.pencraft.pc-display-flex.pc-gap-4 div[class*='color-pub-secondary-text']",
+            # Even more specific: look for div with date-like classes
+            "div[class*='date'][class*='pub-secondary']",
             # Time elements with datetime attribute
             "time[datetime]",  # Time elements with datetime
             "article time[datetime]",  # Time in article with datetime
@@ -468,16 +472,15 @@ class BaseSubstackScraper(ABC):
                     print(f"  Date found from datetime attribute: {date}")
                     break
                 else:
-                    # Get text content
-                    raw_text = date_elem.text.strip()
-                    if raw_text and raw_text != "None":
-                        # Clean up the text - remove author names and extra content
-                        # Split by common separators and look for date patterns
-                        parts = raw_text.split("∙")
-                        for part in parts:
-                            # Check if this part looks like a date
-                            if any(
-                                month in part
+                    # Check if this element has child divs that might contain the actual date
+                    child_divs = date_elem.find_all("div")
+                    if child_divs:
+                        # Try to get the innermost div that contains text
+                        for child in child_divs:
+                            child_text = child.get_text(strip=True)
+                            # Check if this looks like a date
+                            if child_text and any(
+                                month in child_text
                                 for month in [
                                     "Jan",
                                     "Feb",
@@ -493,19 +496,51 @@ class BaseSubstackScraper(ABC):
                                     "Dec",
                                 ]
                             ):
-                                date = part.strip()
-                                print(f"  Date extracted from text: {date}")
-                                break
-                        else:
-                            # If no month found, use the first part that contains numbers
+                                # Check if this div has no children with text (i.e., it's the innermost)
+                                if not child.find_all(text=True, recursive=False)[1:]:  # [1:] to skip its own text
+                                    date = child_text
+                                    print(f"  Date extracted from innermost div: {date}")
+                                    break
+
+                    # If we didn't find it in child divs, try the original element
+                    if date == "Date not found":
+                        raw_text = date_elem.text.strip()
+                        if raw_text and raw_text != "None":
+                            # Clean up the text - remove author names and extra content
+                            # Split by common separators and look for date patterns
+                            parts = raw_text.split("∙")
                             for part in parts:
-                                if any(char.isdigit() for char in part):
+                                # Check if this part looks like a date
+                                if any(
+                                    month in part
+                                    for month in [
+                                        "Jan",
+                                        "Feb",
+                                        "Mar",
+                                        "Apr",
+                                        "May",
+                                        "Jun",
+                                        "Jul",
+                                        "Aug",
+                                        "Sep",
+                                        "Oct",
+                                        "Nov",
+                                        "Dec",
+                                    ]
+                                ):
                                     date = part.strip()
                                     print(f"  Date extracted from text: {date}")
                                     break
+                            else:
+                                # If no month found, use the first part that contains numbers
+                                for part in parts:
+                                    if any(char.isdigit() for char in part):
+                                        date = part.strip()
+                                        print(f"  Date extracted from text: {date}")
+                                        break
 
-                        if date != "Date not found":
-                            break
+                    if date != "Date not found":
+                        break
 
         # Like count extraction
         like_count_elem = soup.select_one("a.post-ufi-button .label")
@@ -549,9 +584,13 @@ class BaseSubstackScraper(ABC):
             # Extract date for filename
             date_str = "1970-01-01"
             date_selectors = [
-                # Very specific selector for Substack's current date structure
-                "div.byline-wrapper div.pencraft.pc-display-flex.pc-gap-4 > div:first-child",  # The first div in the date container
-                "div[class*='color-pub-secondary-text'][class*='meta-']:not(:has(*))",  # Meta div without children
+                # Very specific selector for the date div in byline-wrapper
+                # Target the date-containing div that has classes like 'color-pub-secondary-text-*'
+                "div.byline-wrapper div[class*='color-pub-secondary-text'] > div",
+                # More specific: the innermost div that contains the date text
+                "div.byline-wrapper div.pencraft.pc-display-flex.pc-gap-4 div[class*='color-pub-secondary-text']",
+                # Even more specific: look for div with date-like classes
+                "div[class*='date'][class*='pub-secondary']",
                 # Time elements with datetime attribute
                 "time[datetime]",  # Time elements with datetime
                 "article time[datetime]",  # Time in article with datetime
@@ -574,16 +613,15 @@ class BaseSubstackScraper(ABC):
                         print(f"  Date found from datetime attribute: {extracted_date}")
                         break
                     else:
-                        # Get text content
-                        raw_text = date_elem.text.strip()
-                        if raw_text and raw_text != "None":
-                            # Clean up the text - remove author names and extra content
-                            # Split by common separators and look for date patterns
-                            parts = raw_text.split("∙")
-                            for part in parts:
-                                # Check if this part looks like a date
-                                if any(
-                                    month in part
+                        # Check if this element has child divs that might contain the actual date
+                        child_divs = date_elem.find_all("div")
+                        if child_divs:
+                            # Try to get the innermost div that contains text
+                            for child in child_divs:
+                                child_text = child.get_text(strip=True)
+                                # Check if this looks like a date
+                                if child_text and any(
+                                    month in child_text
                                     for month in [
                                         "Jan",
                                         "Feb",
@@ -599,19 +637,51 @@ class BaseSubstackScraper(ABC):
                                         "Dec",
                                     ]
                                 ):
-                                    extracted_date = part.strip()
-                                    print(f"  Date extracted from text: {extracted_date}")
-                                    break
-                            else:
-                                # If no month found, use the first part that contains numbers
+                                    # Check if this div has no children with text (i.e., it's the innermost)
+                                    if not child.find_all(text=True, recursive=False)[1:]:  # [1:] to skip its own text
+                                        extracted_date = child_text
+                                        print(f"  Date extracted from innermost div: {extracted_date}")
+                                        break
+
+                        # If we didn't find it in child divs, try the original element
+                        if not extracted_date:
+                            raw_text = date_elem.text.strip()
+                            if raw_text and raw_text != "None":
+                                # Clean up the text - remove author names and extra content
+                                # Split by common separators and look for date patterns
+                                parts = raw_text.split("∙")
                                 for part in parts:
-                                    if any(char.isdigit() for char in part):
+                                    # Check if this part looks like a date
+                                    if any(
+                                        month in part
+                                        for month in [
+                                            "Jan",
+                                            "Feb",
+                                            "Mar",
+                                            "Apr",
+                                            "May",
+                                            "Jun",
+                                            "Jul",
+                                            "Aug",
+                                            "Sep",
+                                            "Oct",
+                                            "Nov",
+                                            "Dec",
+                                        ]
+                                    ):
                                         extracted_date = part.strip()
                                         print(f"  Date extracted from text: {extracted_date}")
                                         break
+                                else:
+                                    # If no month found, use the first part that contains numbers
+                                    for part in parts:
+                                        if any(char.isdigit() for char in part):
+                                            extracted_date = part.strip()
+                                            print(f"  Date extracted from text: {extracted_date}")
+                                            break
 
-                            if extracted_date:
-                                break
+                        if extracted_date:
+                            break
 
             # Parse the extracted date to create filename
             if extracted_date and extracted_date != "Date not found":
