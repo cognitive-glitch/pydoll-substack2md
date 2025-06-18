@@ -6,6 +6,7 @@ import os
 import random
 import re
 import sys
+import time
 from abc import ABC, abstractmethod
 from datetime import datetime
 
@@ -59,6 +60,12 @@ async def generate_html_file(author_name: str) -> None:
         os.makedirs(BASE_HTML_DIR)
 
     json_path = os.path.join(JSON_DATA_DIR, f"{author_name}.json")
+
+    # Check if JSON file exists
+    if not os.path.exists(json_path):
+        print(f"No JSON data file found for {author_name}, skipping HTML generation")
+        return
+
     async with aiofiles.open(json_path, encoding="utf-8") as file:
         content = await file.read()
         essays_data = json.loads(content)
@@ -1091,36 +1098,15 @@ Examples:
     return parser.parse_args()
 
 
-async def main():
-    """Main entry point."""
-    args = parse_args()
-
-    # Use URL from args or environment
-    url = args.url or BASE_SUBSTACK_URL
-    if not url:
-        print("Error: No Substack URL provided. Use -h for help.")
-        sys.exit(1)
-
-    # Determine if we should use premium scraping
-    use_login = args.login or USE_PREMIUM or (SUBSTACK_EMAIL and SUBSTACK_PASSWORD)
-    use_manual_login = args.manual_login
-
-    # Validate manual login with headless mode
-    if use_manual_login and (args.headless or HEADLESS):
-        print("Error: Manual login mode cannot be used with headless mode")
-        print("Either remove --manual-login or remove --headless")
-        sys.exit(1)
-
-    # Validate delay parameters
-    if args.delay_min > args.delay_max:
-        print("Error: --delay-min cannot be greater than --delay-max")
-        sys.exit(1)
-
+async def scrape_single_url(url: str, args, use_login: bool, use_manual_login: bool) -> None:
+    """Scrape a single Substack URL."""
+    print(f"\n{'=' * 60}")
     print(f"Scraping: {url}")
     print(f"Login enabled: {use_login}")
     print(f"Manual login mode: {use_manual_login}")
     print(f"Headless mode: {args.headless or HEADLESS}")
     print(f"Delay range: {args.delay_min}-{args.delay_max} seconds")
+    print(f"{'=' * 60}\n")
 
     scraper = PydollSubstackScraper(
         base_substack_url=url,
@@ -1142,7 +1128,129 @@ async def main():
     else:
         await scraper.scrape_posts(num_posts_to_scrape=args.number or NUM_POSTS_TO_SCRAPE, continuous=args.continuous)
 
-    print("Scraping completed!")
+
+def get_urls_from_file(filepath: str) -> list[str]:
+    """Read URLs from a file (one per line)."""
+    urls = []
+    try:
+        with open(filepath) as f:
+            for line in f:
+                line = line.strip()
+                if line and not line.startswith("#"):
+                    urls.append(line)
+    except FileNotFoundError:
+        print(f"Error: URLs file '{filepath}' not found")
+        sys.exit(1)
+    return urls
+
+
+def get_urls_from_stdin() -> list[str]:
+    """Read URLs from stdin if available."""
+    urls = []
+    if not sys.stdin.isatty():
+        for line in sys.stdin:
+            line = line.strip()
+            if line and not line.startswith("#"):
+                urls.append(line)
+    return urls
+
+
+async def main():
+    """Main entry point."""
+    args = parse_args()
+
+    # Collect URLs from various sources
+    urls = []
+
+    # From command line arguments
+    if args.urls:
+        urls.extend(args.urls)
+
+    # From file
+    if args.urls_file:
+        urls.extend(get_urls_from_file(args.urls_file))
+
+    # From stdin
+    stdin_urls = get_urls_from_stdin()
+    if stdin_urls:
+        urls.extend(stdin_urls)
+
+    # From environment variable as fallback
+    if not urls and BASE_SUBSTACK_URL:
+        urls.append(BASE_SUBSTACK_URL)
+
+    # Remove duplicates while preserving order
+    seen = set()
+    unique_urls = []
+    for url in urls:
+        if url not in seen:
+            seen.add(url)
+            unique_urls.append(url)
+
+    if not unique_urls:
+        print("Error: No Substack URLs provided. Use -h for help.")
+        print("\nProvide URLs via:")
+        print("  - Command line: pydoll-substack2md URL1 URL2 ...")
+        print("  - File: pydoll-substack2md --urls-file urls.txt")
+        print("  - Stdin: echo 'URL' | pydoll-substack2md")
+        print("  - Environment: Set BASE_SUBSTACK_URL in .env")
+        sys.exit(1)
+
+    # Determine if we should use premium scraping
+    use_login = args.login or USE_PREMIUM or (SUBSTACK_EMAIL and SUBSTACK_PASSWORD)
+    use_manual_login = args.manual_login
+
+    # Validate manual login with headless mode
+    if use_manual_login and (args.headless or HEADLESS):
+        print("Error: Manual login mode cannot be used with headless mode")
+        print("Either remove --manual-login or remove --headless")
+        sys.exit(1)
+
+    # Validate delay parameters
+    if args.delay_min > args.delay_max:
+        print("Error: --delay-min cannot be greater than --delay-max")
+        sys.exit(1)
+
+    print(f"\n🎯 Starting scraper for {len(unique_urls)} Substack(s)")
+    if args.continuous and args.interval > 0:
+        print(f"📅 Continuous mode: Will re-run every {args.interval} minutes")
+
+    # Main scraping loop
+    while True:
+        start_time = time.time()
+
+        # Scrape all URLs
+        for i, url in enumerate(unique_urls, 1):
+            print(f"\n📍 Processing {i}/{len(unique_urls)}: {url}")
+            try:
+                await scrape_single_url(url, args, use_login, use_manual_login)
+                print(f"✅ Completed: {url}")
+            except Exception as e:
+                print(f"❌ Error scraping {url}: {e}")
+                if args.continuous:
+                    print("   Continuing with next URL...")
+                    continue
+                else:
+                    raise
+
+        # Check if we should continue
+        if not args.continuous or args.interval <= 0:
+            break
+
+        # Calculate time until next run
+        elapsed = time.time() - start_time
+        wait_time = max(0, args.interval * 60 - elapsed)
+
+        if wait_time > 0:
+            print(f"\n⏰ Waiting {wait_time / 60:.1f} minutes until next run...")
+            print("   Press Ctrl+C to stop")
+            try:
+                await asyncio.sleep(wait_time)
+            except KeyboardInterrupt:
+                print("\n👋 Stopping continuous mode")
+                break
+
+    print("\n✨ All scraping completed!")
 
 
 def run():
