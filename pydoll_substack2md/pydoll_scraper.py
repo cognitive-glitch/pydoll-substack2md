@@ -138,38 +138,28 @@ class BaseSubstackScraper(ABC):
         except Exception as e:
             print(f"Error saving scraping state: {e}")
 
-    def get_existing_posts_info(self) -> tuple[int, set[str], str | None]:
-        """Get information about existing posts: highest number, URLs, and latest date."""
-        highest_number = 0
+    def _get_existing_urls_from_files(self) -> set[str]:
+        """Get existing URLs from markdown files."""
         existing_urls = set()
-        latest_date = None
 
-        # Check for numbered files
-        pattern = os.path.join(self.md_save_dir, "[0-9][0-9]-*.md")
-        numbered_files = glob.glob(pattern)
+        # Check all markdown files
+        pattern = os.path.join(self.md_save_dir, "*.md")
+        md_files = glob.glob(pattern)
 
-        for filepath in numbered_files:
+        for filepath in md_files:
             filename = os.path.basename(filepath)
-            # Extract number from filename
-            try:
-                number = int(filename[:2])
-                highest_number = max(highest_number, number)
-            except ValueError:
-                continue
 
-            # Extract URL from filename (remove number prefix and .md extension)
-            url_part = filename[3:-3]  # Remove "XX-" prefix and ".md" suffix
-            existing_urls.add(url_part)
+            # Handle date-prefixed files (YYYYMMDD-*.md)
+            if len(filename) > 9 and filename[8] == "-":
+                # Remove date prefix and .md extension
+                url_part = filename[9:-3]
+                existing_urls.add(url_part)
+            else:
+                # Handle old format files (just remove .md)
+                url_part = filename[:-3]
+                existing_urls.add(url_part)
 
-        # Load state file for additional info
-        state = self.load_scraping_state()
-        if state:
-            latest_date = state.get("latest_post_date")
-            # Also add URLs from state file
-            if "scraped_urls" in state:
-                existing_urls.update(state["scraped_urls"])
-
-        return highest_number, existing_urls, latest_date
+        return existing_urls
 
     def fetch_urls_from_sitemap(self) -> list[str]:
         """Fetches URLs from sitemap.xml."""
@@ -297,21 +287,63 @@ class BaseSubstackScraper(ABC):
         metadata += f"**Likes:** {like_count}\n\n"
         return metadata + content
 
-    async def download_image(self, img_url: str, post_title: str) -> str:
-        """Download image and return local path."""
+    async def download_image(self, img_url: str, post_title: str, img_context: str = "", post_date: str = "") -> str:
+        """Download image and return local path with descriptive filename."""
         try:
             # Clean the post title for use in filename
             safe_title = re.sub(r"[^\w\s-]", "", post_title).strip()
             safe_title = re.sub(r"[-\s]+", "-", safe_title)[:50]  # Limit length
 
-            # Extract image extension
+            # Extract original filename or description from URL
             parsed_url = urlparse(img_url)
             path = parsed_url.path
+            original_name = os.path.basename(path)
+            name_without_ext = os.path.splitext(original_name)[0]
             ext = os.path.splitext(path)[1] or ".jpg"
 
-            # Create unique filename
-            img_hash = str(hash(img_url))[-8:]  # Last 8 chars of hash for uniqueness
-            filename = f"{safe_title}_{img_hash}{ext}"
+            # Try to extract meaningful name from the original filename
+            if name_without_ext and not name_without_ext.isdigit() and len(name_without_ext) > 3:
+                # Clean the original name
+                clean_name = re.sub(r"[^\w\s-]", "", name_without_ext).strip()
+                clean_name = re.sub(r"[-\s]+", "-", clean_name)[:30]
+            else:
+                clean_name = ""
+
+            # Build filename parts
+            parts = []
+
+            # Add date prefix if available
+            if post_date:
+                try:
+                    parsed_date = dateutil.parser.parse(post_date)
+                    date_prefix = parsed_date.strftime("%Y%m%d")
+                    parts.append(date_prefix)
+                except Exception:
+                    pass
+
+            # Add post title
+            if safe_title:
+                parts.append(safe_title)
+
+            # Add image context or original name
+            if img_context:
+                clean_context = re.sub(r"[^\w\s-]", "", img_context).strip()
+                clean_context = re.sub(r"[-\s]+", "-", clean_context)[:30]
+                if clean_context:
+                    parts.append(clean_context)
+            elif clean_name:
+                parts.append(clean_name)
+
+            # Add a short hash for uniqueness (only 6 chars)
+            img_hash = str(abs(hash(img_url)))[:6]
+            parts.append(img_hash)
+
+            # Create filename
+            filename = "-".join(parts) + ext
+            # Ensure filename isn't too long
+            if len(filename) > 200:
+                filename = filename[:196] + img_hash + ext
+
             local_path = os.path.join(self.images_dir, filename)
 
             # Check if already downloaded
@@ -327,8 +359,8 @@ class BaseSubstackScraper(ABC):
             with open(local_path, "wb") as f:
                 f.write(response.content)
 
-            # Add delay for rate limiting
-            delay = random.uniform(0.5, 1.5)  # Shorter delay for images
+            # Add small delay for rate limiting (30-100ms)
+            delay = random.uniform(0.03, 0.1)
             await asyncio.sleep(delay)
 
             return f"images/{filename}"
@@ -336,7 +368,7 @@ class BaseSubstackScraper(ABC):
             print(f"  Error downloading image {img_url}: {e}")
         return img_url  # Return original URL on error
 
-    async def process_images_in_content(self, content: str, post_title: str) -> str:
+    async def process_images_in_content(self, content: str, post_title: str, post_date: str = "") -> str:
         """Process all images in content and replace with local paths."""
         soup = BeautifulSoup(content, "html.parser")
         images = soup.find_all("img")
@@ -349,8 +381,14 @@ class BaseSubstackScraper(ABC):
                     if not src.startswith(("http://", "https://")):
                         src = urljoin(self.base_substack_url, src)
 
+                    # Extract image context from alt text or nearby text
+                    img_context = ""
+                    alt_text = img.get("alt", "")  # type: ignore
+                    if alt_text and isinstance(alt_text, str):
+                        img_context = alt_text[:50]  # Limit length
+
                     # Download image and get local path
-                    local_path = await self.download_image(src, post_title)
+                    local_path = await self.download_image(src, post_title, img_context, post_date)
                     img["src"] = local_path  # type: ignore
 
         return str(soup)
@@ -390,15 +428,19 @@ class BaseSubstackScraper(ABC):
             if text.isdigit():
                 like_count = text
 
-        # Content extraction
-        content_elem = soup.select_one("div.available-content")
+        # Content extraction - look for the actual content container
+        content_elem = soup.select_one("div.available-content div.body.markup")
         if not content_elem:
+            # Fallback to available-content
+            content_elem = soup.select_one("div.available-content")
+        if not content_elem:
+            # Final fallback to article
             content_elem = soup.select_one("article")
         content = str(content_elem) if content_elem else ""
 
         # Process images before converting to markdown
         print(f"Processing images for: {title}")
-        content = await self.process_images_in_content(content, title)
+        content = await self.process_images_in_content(content, title, date)
 
         md = self.html_to_md(content)
         md_content = self.combine_metadata_and_content(title, subtitle, date, like_count, md)
@@ -408,6 +450,72 @@ class BaseSubstackScraper(ABC):
     async def get_url_soup(self, url: str) -> BeautifulSoup | None:
         """Abstract method to get BeautifulSoup from URL."""
         raise NotImplementedError
+
+    async def scrape_single_post_with_date(self, url: str) -> dict[str, Any] | None:
+        """Scrape a single post and save with date-based filename."""
+        try:
+            # Get page content
+            soup = await self.get_url_soup(url)
+            if soup is None:
+                return None
+
+            # Extract date for filename
+            date_str = "1970-01-01"
+            date_selectors = ["time", "div.post-meta time", "div[class*='meta'] time"]
+            for selector in date_selectors:
+                date_elem = soup.select_one(selector)
+                if date_elem:
+                    date_attr = date_elem.get("datetime")
+                    if date_attr:
+                        date_str = str(date_attr)
+                        break
+                    elif date_elem.text.strip():
+                        try:
+                            parsed_date = dateutil.parser.parse(date_elem.text.strip())
+                            date_str = parsed_date.isoformat()
+                        except Exception:
+                            date_str = date_elem.text.strip()
+                        break
+
+            # Convert to YYYYMMDD format
+            try:
+                parsed_date = dateutil.parser.parse(date_str)
+                date_prefix = parsed_date.strftime("%Y%m%d")
+            except Exception:
+                date_prefix = "19700101"
+
+            # Extract post data
+            title, subtitle, like_count, date, md = await self.extract_post_data(soup, url)
+
+            # Generate date-based filename
+            base_filename = self.get_filename_from_url(url, filetype="")
+            md_filename = f"{date_prefix}-{base_filename}.md"
+            html_filename = f"{date_prefix}-{base_filename}.html"
+
+            md_filepath = os.path.join(self.md_save_dir, md_filename)
+            html_filepath = os.path.join(self.html_save_dir, html_filename)
+
+            # Save files
+            await self.save_to_file(md_filepath, md)
+
+            # Convert markdown to HTML and save
+            html_content = self.md_to_html(md)
+            await self.save_to_html_file(html_filepath, html_content)
+
+            return {
+                "title": title,
+                "subtitle": subtitle,
+                "like_count": like_count,
+                "date": date,
+                "date_str": date_str,
+                "url": url,
+                "file_link": md_filepath,
+                "html_link": html_filepath,
+            }
+
+        except Exception as e:
+            print(f"Error scraping post {url}: {e}")
+            return None
 
     async def save_essays_data_to_json(self, essays_data: list[dict[str, Any]]) -> None:
         """Saves essays data to JSON file."""
@@ -431,189 +539,106 @@ class BaseSubstackScraper(ABC):
             await file.write(json.dumps(merged_data, ensure_ascii=False, indent=4))
 
     async def scrape_posts(self, num_posts_to_scrape: int = 0, continuous: bool = False) -> None:
-        """Scrapes posts and saves them as markdown and HTML files.
+        """Scrapes posts asynchronously and saves them with date-based filenames.
 
         Args:
             num_posts_to_scrape: Number of posts to scrape (0 for all)
             continuous: If True, only scrape new posts since last run
         """
-        essays_data: list[dict[str, Any]] = []
-
-        # Get existing posts information
-        highest_number, existing_urls, latest_date = self.get_existing_posts_info()
-        start_number = highest_number + 1 if continuous else 1
+        print(f"Starting async scraping of posts from {self.writer_url}")
 
         # Load previous state
         state = self.load_scraping_state() if continuous else {}
         scraped_urls = set(state.get("scraped_urls", []))
+        latest_date = state.get("latest_post_date")
 
-        # First pass: collect all post metadata to sort by date
-        print("Collecting post metadata...")
-        posts_metadata: list[dict[str, Any]] = []
+        if continuous and latest_date:
+            print(f"Continuous mode: Only fetching posts newer than {latest_date}")
+
+        # Get existing URLs from files
+        existing_urls = self._get_existing_urls_from_files()
+
+        # Filter URLs
         urls_to_process = self.post_urls[:num_posts_to_scrape] if num_posts_to_scrape else self.post_urls
+        filtered_urls = []
 
         for url in urls_to_process:
-            try:
-                # Generate original filename to check if already processed
-                original_filename = self.get_filename_from_url(url, filetype=".md")
-                url_slug = original_filename.replace(".md", "")
+            original_filename = self.get_filename_from_url(url, filetype=".md")
+            url_slug = original_filename.replace(".md", "")
 
-                # Skip if already scraped
-                if continuous and (url in scraped_urls or url_slug in existing_urls):
-                    print(f"Skipping already scraped: {original_filename}")
-                    continue
+            # Skip if already scraped in continuous mode
+            if continuous and (url in scraped_urls or url_slug in existing_urls):
+                print(f"Skipping already scraped: {original_filename}")
+                continue
 
-                # Check if file exists with old naming convention
+            # Check for existing files
+            if not continuous:
                 old_filepath = os.path.join(self.md_save_dir, original_filename)
 
-                # Also check for numbered files
-                numbered_exists = False
-                if not continuous:  # In non-continuous mode, check for existing numbered files
-                    for i in range(1, 1000):  # Check up to 999 files
-                        pattern = f"{i:02d}-*.md"
-                        matching_files = glob.glob(os.path.join(self.md_save_dir, pattern))
-                        for file in matching_files:
-                            if url_slug in file:
-                                numbered_exists = True
-                                break
-                        if numbered_exists:
-                            break
+                # Check for date-prefixed files
+                pattern = "[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]-*.md"
+                matching_files = glob.glob(os.path.join(self.md_save_dir, pattern))
+                date_prefixed_exists = any(url_slug in file for file in matching_files)
 
-                if not continuous and (os.path.exists(old_filepath) or numbered_exists):
+                if os.path.exists(old_filepath) or date_prefixed_exists:
                     print(f"File already exists: {original_filename}")
                     continue
 
-                soup = await self.get_url_soup(url)
-                if soup is None:
-                    continue
+            filtered_urls.append(url)
 
-                # Extract date to use for sorting
-                date_elem = None
-                date_str = "1970-01-01"  # Default date for sorting
-                date_selectors = [
-                    "time",
-                    "div.post-meta time",
-                    "div[class*='meta'] time",
-                    "div.pencraft",
-                ]
-                for selector in date_selectors:
-                    date_elem = soup.select_one(selector)
-                    if date_elem:
-                        date_attr = date_elem.get("datetime")
-                        if date_attr:
-                            date_str = str(date_attr)
-                            break
-                        elif date_elem.text.strip():
-                            # Try to parse the text date
-                            try:
-                                parsed_date = dateutil.parser.parse(date_elem.text.strip())
-                                date_str = parsed_date.isoformat()
-                            except Exception:
-                                date_str = date_elem.text.strip()
-                            break
-
-                # In continuous mode, skip posts older than or equal to latest date
-                if continuous and latest_date and date_str <= latest_date:
-                    print(f"Skipping older post (date: {date_str}): {original_filename}")
-                    continue
-
-                posts_metadata.append(
-                    {"url": url, "soup": soup, "date_str": date_str, "original_filename": original_filename}
-                )
-
-            except Exception as e:
-                print(f"Error collecting metadata for {url}: {e}")
-
-        if not posts_metadata:
+        if not filtered_urls:
             print("No new posts to scrape.")
             return
 
-        # Sort posts by date (oldest first)
-        print("Sorting posts by date (oldest first)...")
-        posts_metadata.sort(key=lambda x: x["date_str"])
+        print(f"Found {len(filtered_urls)} posts to scrape")
 
-        # Second pass: scrape and save with numbered filenames
-        count = 0
-        total = len(posts_metadata)
-        current_number = start_number
+        # Create async tasks
+        semaphore = asyncio.Semaphore(3)  # Limit concurrent requests
 
-        # Track latest post info for state
-        latest_post_date = None
-        latest_post_url = None
+        async def process_with_semaphore(url: str) -> dict[str, Any] | None:
+            async with semaphore:
+                # Add random delay to be respectful
+                delay = random.uniform(self.delay_range[0], self.delay_range[1])
+                await asyncio.sleep(delay)
 
-        # Use async progress bar
-        pbar = tqdm(total=total, desc="Scraping posts")
+                result = await self.scrape_single_post_with_date(url)
+                if result and continuous and latest_date:
+                    # Skip if older than latest date
+                    if result["date_str"] <= latest_date:
+                        print(f"Skipping older post (date: {result['date_str']})")
+                        return None
+                return result
 
-        for post_data in posts_metadata:
-            try:
-                url = post_data["url"]
-                soup = post_data["soup"]
+        # Create tasks for all URLs
+        tasks = [asyncio.create_task(process_with_semaphore(url)) for url in filtered_urls]
 
-                # Extract post data
-                title, subtitle, like_count, date, md = await self.extract_post_data(soup, url)
+        # Process with progress bar
+        essays_data = []
+        with tqdm(total=len(tasks), desc="Scraping posts") as pbar:
+            for coro in asyncio.as_completed(tasks):
+                result = await coro
+                if result:
+                    essays_data.append(result)
+                    scraped_urls.add(result["url"])
+                pbar.update(1)
 
-                # Generate numbered filename
-                base_filename = self.get_filename_from_url(url, filetype="")
-                md_filename = f"{current_number:02d}-{base_filename}.md"
-                html_filename = f"{current_number:02d}-{base_filename}.html"
+        # Save data and update state
+        if essays_data:
+            await self.save_essays_data_to_json(essays_data)
+            print(f"✓ Scraped {len(essays_data)} posts successfully")
 
-                md_filepath = os.path.join(self.md_save_dir, md_filename)
-                html_filepath = os.path.join(self.html_save_dir, html_filename)
+            # Update state for continuous mode
+            if continuous:
+                latest_post = max(essays_data, key=lambda x: x.get("date_str", ""))
+                new_state = {
+                    "latest_post_date": latest_post.get("date_str", ""),
+                    "latest_post_url": latest_post.get("url", ""),
+                    "scraped_urls": list(scraped_urls),
+                    "last_update": datetime.now().isoformat(),
+                }
+                await self.save_scraping_state(new_state)
 
-                # Save files
-                await self.save_to_file(md_filepath, md)
-
-                # Convert markdown to HTML and save
-                html_content = self.md_to_html(md)
-                await self.save_to_html_file(html_filepath, html_content)
-
-                essays_data.append(
-                    {
-                        "title": title,
-                        "subtitle": subtitle,
-                        "like_count": like_count,
-                        "date": date,
-                        "file_link": md_filepath,
-                        "html_link": html_filepath,
-                    }
-                )
-
-                # Track the latest post
-                if not latest_post_date or post_data["date_str"] > latest_post_date:
-                    latest_post_date = post_data["date_str"]
-                    latest_post_url = url
-
-                # Add URL to scraped set
-                scraped_urls.add(url)
-
-                current_number += 1
-
-                # Add random delay between scraping posts to be respectful to servers
-                if count < total - 1:  # Don't delay after the last post
-                    delay = random.uniform(self.delay_range[0], self.delay_range[1])
-                    print(f"Waiting {delay:.1f} seconds before next request...")
-                    await asyncio.sleep(delay)
-
-            except Exception as e:
-                print(f"Error scraping post {post_data['url']}: {e}")
-
-            count += 1
-            pbar.update(1)
-
-        pbar.close()
-
-        # Save scraping state
-        if continuous or essays_data:
-            new_state = {
-                "latest_post_date": latest_post_date or state.get("latest_post_date"),
-                "latest_post_url": latest_post_url or state.get("latest_post_url"),
-                "highest_number": current_number - 1,
-                "scraped_urls": list(scraped_urls),
-                "last_update": datetime.now().isoformat(),
-            }
-            await self.save_scraping_state(new_state)
-
-        await self.save_essays_data_to_json(essays_data)
+        # Generate HTML file
         await generate_html_file(self.writer_name)
 
 
@@ -772,15 +797,41 @@ class PydollSubstackScraper(BaseSubstackScraper):
         # Verify login by checking for common logged-in elements
         print("Verifying login status...")
 
-        # Check for user menu or profile indicators
-        user_menu = await self.tab.find(class_name="user-menu", timeout=3, raise_exc=False)
-        # For now, just check for user menu as profile/settings links might vary
-        profile_link = None
-        settings_link = None
+        # Check multiple indicators of being logged in
+        # Try various selectors that indicate logged-in state
 
-        if user_menu or profile_link or settings_link:
+        # Check for user menu/avatar button
+        user_menu = await self.tab.find(class_name="user-menu", timeout=3, raise_exc=False)
+        avatar_button = await self.tab.find(css="button.avatarButton-lZBlGB", timeout=2, raise_exc=False)
+
+        # Check for Dashboard button (only visible when logged in)
+        dashboard_button = await self.tab.find(text="Dashboard", timeout=2, raise_exc=False)
+
+        # Check for reader navigation elements (shown on home page when logged in)
+        reader_nav = await self.tab.find(class_name="reader-nav-root", timeout=2, raise_exc=False)
+
+        # Check for "Home" in the title (Substack home page after login)
+        home_title = await self.tab.find(tag_name="h1", text="Home", timeout=2, raise_exc=False)
+
+        # Check for subscriber-only elements
+        subscriber_elem = await self.tab.find(css="[data-testid='subscriber-only']", timeout=2, raise_exc=False)
+
+        # Check for any element containing user email or "Sign out" text
+        signout_elem = await self.tab.find(text="Sign out", timeout=2, raise_exc=False)
+
+        if (
+            user_menu
+            or avatar_button
+            or dashboard_button
+            or reader_nav
+            or home_title
+            or subscriber_elem
+            or signout_elem
+        ):
             self.is_logged_in = True
             print("✓ Login verification successful!")
+            if dashboard_button or home_title:
+                print("  (Detected Substack home page)")
         else:
             print("⚠ Warning: Could not verify login status. Continuing anyway...")
             print("If you encounter access issues with premium content, please try again.")
@@ -799,23 +850,44 @@ class PydollSubstackScraper(BaseSubstackScraper):
             # Wait for content to load - multiple strategies for thorough loading
             print("  Waiting for page to fully load...")
 
-            # 1. Initial page delay to allow JavaScript to execute
+            # 1. Wait for page load event
+            # Note: Pydoll doesn't have wait_for_load_state, so we use a simple delay
+            # This could be enhanced with PageEvent.LOAD_EVENT_FIRED if needed
             await asyncio.sleep(2)
+            print("  ✓ Initial page load delay completed")
 
-            # 2. Wait for specific content indicators
+            # 2. Wait for specific content indicators - check for the actual content div
             content_loaded = False
-            for selector in ["div.available-content", "article", "div.post-content"]:
-                content_elem = await self.tab.find(class_name=selector.replace(".", ""), timeout=5, raise_exc=False)
-                if content_elem:
-                    content_loaded = True
-                    break
 
-            # 3. Additional wait for dynamic content
-            if content_loaded:
-                await asyncio.sleep(2)  # Give extra time for images/dynamic content
+            # First try to find the body markup which contains the actual content
+            # Note: Using CSS selector for multiple classes
+            print("  Looking for content elements...")
+            body_markup = await self.tab.find(css="div.body.markup", timeout=5, raise_exc=False)
+            if body_markup:
+                content_loaded = True
+                print("  ✓ Found div.body.markup")
+                # Wait a bit for any lazy-loaded content within the body
+                await asyncio.sleep(1)
             else:
-                # If no content found, wait a bit longer
-                await asyncio.sleep(3)
+                # Try other selectors
+                for selector in ["available-content", "article", "post-content"]:
+                    content_elem = await self.tab.find(class_name=selector, timeout=3, raise_exc=False)
+                    if content_elem:
+                        content_loaded = True
+                        print(f"  ✓ Found {selector}")
+                        break
+
+            # 3. Additional wait for dynamic content if needed
+            if not content_loaded:
+                # Last resort - wait for any article tag
+                article = await self.tab.find(tag_name="article", timeout=5, raise_exc=False)
+                if article:
+                    content_loaded = True
+                    await asyncio.sleep(2)  # Give extra time for content to render
+                else:
+                    # If still no content found, wait a bit longer
+                    print("  Warning: Could not find expected content selectors")
+                    await asyncio.sleep(3)
 
             # Check for paywall
             paywall = await self.tab.find(tag_name="h2", class_name="paywall-title", raise_exc=False)
@@ -863,308 +935,17 @@ class PydollSubstackScraper(BaseSubstackScraper):
                 else:
                     await self.login()
 
-            # Get existing posts information
-            highest_number, existing_urls, latest_date = self.get_existing_posts_info()
-            start_number = highest_number + 1 if continuous else 1
-
-            # Load previous state
-            state = self.load_scraping_state() if continuous else {}
-            scraped_urls = set(state.get("scraped_urls", []))
-
-            # First pass: collect all post metadata to sort by date
-            print("Collecting post metadata...")
-            posts_metadata: list[dict[str, Any]] = []
-            urls_to_process = self.post_urls[:num_posts_to_scrape] if num_posts_to_scrape else self.post_urls
-
-            # Process metadata collection in batches too
-            for i in range(0, len(urls_to_process), max_concurrent):
-                batch = urls_to_process[i : i + max_concurrent]
-                tasks: list[Any] = []
-
-                for url in batch:
-                    # Skip if already scraped in continuous mode
-                    original_filename = self.get_filename_from_url(url, filetype=".md")
-                    url_slug = original_filename.replace(".md", "")
-
-                    if continuous and (url in scraped_urls or url_slug in existing_urls):
-                        print(f"Skipping already scraped: {original_filename}")
-                        continue
-
-                    task = self.collect_post_metadata(url)
-                    tasks.append(task)
-
-                results = await asyncio.gather(*tasks, return_exceptions=True)
-
-                for result in results:
-                    if isinstance(result, dict) and result.get("url"):
-                        # In continuous mode, skip posts older than latest date
-                        if continuous and latest_date and result.get("date_str", "") <= latest_date:
-                            print(f"Skipping older post (date: {result.get('date_str')})")
-                            continue
-                        posts_metadata.append(result)
-                    elif isinstance(result, Exception):
-                        print(f"Error collecting metadata: {result}")
-
-            if not posts_metadata:
-                print("No new posts to scrape.")
-                return
-
-            # Sort posts by date (oldest first)
-            print("Sorting posts by date (oldest first)...")
-            posts_metadata.sort(key=lambda x: x.get("date_str", "1970-01-01"))
-
-            # Create a mapping of URL to index for numbered filenames
-            url_to_index = {post["url"]: idx + start_number for idx, post in enumerate(posts_metadata)}
-
-            essays_data: list[dict[str, Any]] = []
-
-            # Track latest post info for state
-            latest_post_date = state.get("latest_post_date")
-            latest_post_url = state.get("latest_post_url")
-
-            # Process in batches with proper numbering
-            for i in range(0, len(posts_metadata), max_concurrent):
-                batch = posts_metadata[i : i + max_concurrent]
-                tasks: list[Any] = []
-
-                for post_data in batch:
-                    url = post_data["url"]
-                    index = url_to_index[url]
-                    task = self.scrape_single_post_with_index(url, index)
-                    tasks.append(task)
-
-                # Wait for batch to complete
-                results = await asyncio.gather(*tasks, return_exceptions=True)
-
-                for idx, result in enumerate(results):
-                    if isinstance(result, dict):
-                        essays_data.append(result)  # type: ignore
-
-                        # Track the latest post
-                        post_date = batch[idx].get("date_str")
-                        if not latest_post_date or post_date > latest_post_date:
-                            latest_post_date = post_date
-                            latest_post_url = batch[idx]["url"]
-
-                        # Add URL to scraped set
-                        scraped_urls.add(batch[idx]["url"])
-                    elif isinstance(result, Exception):
-                        print(f"Error in concurrent scraping: {result}")
-
-                # Add delay between batches to be respectful to servers
-                if i + max_concurrent < len(posts_metadata):
-                    delay = random.uniform(self.delay_range[0], self.delay_range[1])
-                    print(f"Batch completed. Waiting {delay:.1f} seconds before next batch...")
-                    await asyncio.sleep(delay)
-
-            # Save scraping state
-            if continuous or essays_data:
-                highest_scraped_number = max(url_to_index.values()) if url_to_index else start_number - 1
-                new_state = {
-                    "latest_post_date": latest_post_date,
-                    "latest_post_url": latest_post_url,
-                    "highest_number": highest_scraped_number,
-                    "scraped_urls": list(scraped_urls),
-                    "last_update": datetime.now().isoformat(),
-                }
-                await self.save_scraping_state(new_state)
-
-            await self.save_essays_data_to_json(essays_data)
-            await generate_html_file(self.writer_name)
+            # Use the base class async scrape_posts method
+            await super().scrape_posts(num_posts_to_scrape, continuous)
 
         finally:
             if self.browser:
                 await self.browser.stop()
 
-    async def collect_post_metadata(self, url: str) -> dict[str, Any]:
-        """Collect metadata for a single post without full scraping."""
-        try:
-            # Generate original filename to check if already processed
-            original_filename = self.get_filename_from_url(url, filetype=".md")
-
-            # Check if file exists with old naming convention
-            old_filepath = os.path.join(self.md_save_dir, original_filename)
-
-            # Also check for numbered files
-            numbered_exists = False
-            for i in range(1, 1000):  # Check up to 999 files
-                pattern = f"{i:02d}-*.md"
-                matching_files = glob.glob(os.path.join(self.md_save_dir, pattern))
-                for file in matching_files:
-                    if original_filename.replace(".md", "") in file:
-                        numbered_exists = True
-                        break
-                if numbered_exists:
-                    break
-
-            if os.path.exists(old_filepath) or numbered_exists:
-                print(f"File already exists: {original_filename}")
-                return {}
-
-            # Create new tab for metadata collection
-            tab = await self.browser.connect()
-            try:
-                await tab.go_to(url)
-                # Wait for page to load
-                await asyncio.sleep(2)
-
-                # Wait for content to load
-                await tab.find(class_name="post-title", timeout=10)
-
-                # Get page content
-                page_html = await tab.content()
-                soup = BeautifulSoup(page_html, "lxml")
-
-                # Extract date for sorting
-                date_str = "1970-01-01"  # Default date for sorting
-                date_selectors = [
-                    "time",
-                    "div.post-meta time",
-                    "div[class*='meta'] time",
-                    "div.pencraft",
-                ]
-                for selector in date_selectors:
-                    date_elem = soup.select_one(selector)
-                    if date_elem:
-                        date_attr = date_elem.get("datetime")
-                        if date_attr:
-                            date_str = str(date_attr)
-                            break
-                        elif date_elem.text.strip():
-                            # Try to parse the text date
-                            try:
-                                parsed_date = dateutil.parser.parse(date_elem.text.strip())
-                                date_str = parsed_date.isoformat()
-                            except Exception:
-                                date_str = date_elem.text.strip()
-                            break
-
-                return {"url": url, "date_str": date_str, "original_filename": original_filename}
-
-            finally:
-                await tab.close()
-
-        except Exception as e:
-            print(f"Error collecting metadata for {url}: {e}")
-            return {}
-
-    async def scrape_single_post_with_index(self, url: str, index: int) -> dict[str, Any] | None:
-        """Scrape a single post with a specific index for numbered filename."""
-        try:
-            # Create new tab for concurrent scraping
-            tab = await self.browser.connect()
-            try:
-                await tab.go_to(url)
-                # Wait for page to load
-                await asyncio.sleep(2)
-
-                # Wait for content to load
-                await tab.find(class_name="post-title", timeout=10)
-
-                # Get page content
-                page_html = await tab.content()
-                soup = BeautifulSoup(page_html, "lxml")
-
-                # Extract post data
-                title, subtitle, like_count, date, md = await self.extract_post_data(soup, url)
-
-                # Generate numbered filename
-                base_filename = self.get_filename_from_url(url, filetype="")
-                md_filename = f"{index:02d}-{base_filename}.md"
-                html_filename = f"{index:02d}-{base_filename}.html"
-
-                md_filepath = os.path.join(self.md_save_dir, md_filename)
-                html_filepath = os.path.join(self.html_save_dir, html_filename)
-
-                # Save files
-                await self.save_to_file(md_filepath, md)
-
-                # Convert markdown to HTML and save
-                html_content = self.md_to_html(md)
-                await self.save_to_html_file(html_filepath, html_content)
-
-                return {
-                    "title": title,
-                    "subtitle": subtitle,
-                    "like_count": like_count,
-                    "date": date,
-                    "file_link": md_filepath,
-                    "html_link": html_filepath,
-                }
-
-            finally:
-                await tab.close()
-
-        except Exception as e:
-            print(f"Error scraping post {url}: {e}")
-            return None
-
     async def scrape_single_post(self, url: str) -> dict[str, Any] | None:
-        """Scrape a single post and return its data."""
-        try:
-            md_filename = self.get_filename_from_url(url, filetype=".md")
-            html_filename = self.get_filename_from_url(url, filetype=".html")
-            md_filepath = os.path.join(self.md_save_dir, md_filename)
-            html_filepath = os.path.join(self.html_save_dir, html_filename)
-
-            if os.path.exists(md_filepath):
-                print(f"File already exists: {md_filepath}")
-                return None
-
-            # Create new tab for concurrent scraping
-            if self.browser is None:
-                raise RuntimeError("Browser not initialized")
-            tab = await self.browser.new_tab()
-
-            try:
-                # Navigate to post
-                await tab.go_to(url)
-
-                # Wait for full page load
-                print("  Waiting for page to fully load...")
-                # Wait for page to load
-                await asyncio.sleep(2)  # type: ignore
-
-                # Wait for content to be available
-                content_elem = await tab.find(class_name="available-content", timeout=10, raise_exc=False)
-                if not content_elem:
-                    content_elem = await tab.find(tag_name="article", timeout=5, raise_exc=False)
-
-                # Additional wait for dynamic content
-                await asyncio.sleep(2)
-
-                # Check for paywall
-                paywall = await tab.find(tag_name="h2", class_name="paywall-title", raise_exc=False)
-                if paywall and not self.is_logged_in:
-                    print(f"Skipping premium article: {url}")
-                    return None
-
-                # Get page source
-                page_source = await tab.page_source
-                soup = BeautifulSoup(page_source, "html.parser")
-
-                title, subtitle, like_count, date, md = await self.extract_post_data(soup, url)
-                await self.save_to_file(md_filepath, md)
-
-                # Convert markdown to HTML and save
-                html_content = self.md_to_html(md)
-                await self.save_to_html_file(html_filepath, html_content)
-
-                return {
-                    "title": title,
-                    "subtitle": subtitle,
-                    "like_count": like_count,
-                    "date": date,
-                    "file_link": md_filepath,
-                    "html_link": html_filepath,
-                }
-
-            finally:
-                await tab.close()
-
-        except Exception as e:
-            print(f"Error scraping post {url}: {e}")
-            return None
+        """Scrape a single post and return its data using date-based filenames."""
+        # Simply delegate to the new method
+        return await self.scrape_single_post_with_date(url)
 
 
 def parse_args() -> argparse.Namespace:
