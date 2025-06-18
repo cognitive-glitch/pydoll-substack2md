@@ -10,7 +10,7 @@ from abc import ABC, abstractmethod
 from datetime import datetime
 
 # from functools import partial  # Unused import removed
-from typing import Any, Tuple, List, Dict, Optional, Union
+from typing import Any
 from urllib.parse import urljoin, urlparse
 from xml.etree import ElementTree as ET
 
@@ -83,7 +83,7 @@ class BaseSubstackScraper(ABC):
     """Abstract base class for Substack scrapers."""
 
     def __init__(
-        self, base_substack_url: str, md_save_dir: str, html_save_dir: str, delay_range: Tuple[int, int] = (1, 3)
+        self, base_substack_url: str, md_save_dir: str, html_save_dir: str, delay_range: tuple[int, int] = (1, 3)
     ):
         if not base_substack_url.endswith("/"):
             base_substack_url += "/"
@@ -111,14 +111,14 @@ class BaseSubstackScraper(ABC):
         # Delay configuration for rate limiting
         self.delay_range = delay_range
 
-    def get_all_post_urls(self) -> List[str]:
+    def get_all_post_urls(self) -> list[str]:
         """Attempts to fetch URLs from sitemap.xml, falling back to feed.xml if necessary."""
         urls = self.fetch_urls_from_sitemap()
         if not urls:
             urls = self.fetch_urls_from_feed()
         return self.filter_urls(urls, self.keywords)
 
-    def load_scraping_state(self) -> Dict[str, Any]:
+    def load_scraping_state(self) -> dict[str, Any]:
         """Load the scraping state from the metadata file."""
         state_file = os.path.join(self.md_save_dir, ".scraping_state.json")
         if os.path.exists(state_file):
@@ -129,7 +129,7 @@ class BaseSubstackScraper(ABC):
                 print(f"Error loading scraping state: {e}")
         return {}
 
-    async def save_scraping_state(self, state: Dict[str, Any]) -> None:
+    async def save_scraping_state(self, state: dict[str, Any]) -> None:
         """Save the scraping state to the metadata file."""
         state_file = os.path.join(self.md_save_dir, ".scraping_state.json")
         try:
@@ -161,7 +161,7 @@ class BaseSubstackScraper(ABC):
 
         return existing_urls
 
-    def fetch_urls_from_sitemap(self) -> List[str]:
+    def fetch_urls_from_sitemap(self) -> list[str]:
         """Fetches URLs from sitemap.xml."""
         sitemap_url = f"{self.base_substack_url}sitemap.xml"
         try:
@@ -182,7 +182,7 @@ class BaseSubstackScraper(ABC):
             print(f"Failed to fetch sitemap: {e}")
             return []
 
-    def fetch_urls_from_feed(self) -> List[str]:
+    def fetch_urls_from_feed(self) -> list[str]:
         """Fetches URLs from feed.xml."""
         print("Falling back to feed.xml. This will only contain up to the 22 most recent posts.")
         feed_url = f"{self.base_substack_url}feed.xml"
@@ -193,7 +193,7 @@ class BaseSubstackScraper(ABC):
                 return []
 
             root = ET.fromstring(response.content)
-            urls: List[str] = []
+            urls: list[str] = []
             for item in root.findall(".//item"):
                 link = item.find("link")
                 if link is not None and link.text:
@@ -205,7 +205,7 @@ class BaseSubstackScraper(ABC):
             return []
 
     @staticmethod
-    def filter_urls(urls: List[str], keywords: List[str]) -> List[str]:
+    def filter_urls(urls: list[str], keywords: list[str]) -> list[str]:
         """Filters out URLs that contain certain keywords."""
         filtered = [url for url in urls if all(keyword not in url for keyword in keywords)]
         print(f"Filtered {len(urls)} URLs to {len(filtered)} post URLs")
@@ -393,7 +393,7 @@ class BaseSubstackScraper(ABC):
 
         return str(soup)
 
-    async def extract_post_data(self, soup: BeautifulSoup, url: str) -> Tuple[str, str, str, str, str]:
+    async def extract_post_data(self, soup: BeautifulSoup, url: str) -> tuple[str, str, str, str, str]:
         """Extracts post data from BeautifulSoup object."""
         # Title extraction
         title_elem = soup.select_one("h1.post-title, h2")
@@ -447,11 +447,11 @@ class BaseSubstackScraper(ABC):
         return title, subtitle, like_count, date, md_content
 
     @abstractmethod
-    async def get_url_soup(self, url: str) -> Optional[BeautifulSoup]:
+    async def get_url_soup(self, url: str) -> BeautifulSoup | None:
         """Abstract method to get BeautifulSoup from URL."""
         raise NotImplementedError
 
-    async def scrape_single_post_with_date(self, url: str) -> Optional[Dict[str, Any]]:
+    async def scrape_single_post_with_date(self, url: str) -> dict[str, Any] | None:
         """Scrape a single post and save with date-based filename."""
         try:
             # Get page content
@@ -517,13 +517,13 @@ class BaseSubstackScraper(ABC):
             print(f"Error scraping post {url}: {e}")
             return None
 
-    async def save_essays_data_to_json(self, essays_data: List[Dict[str, Any]]) -> None:
+    async def save_essays_data_to_json(self, essays_data: list[dict[str, Any]]) -> None:
         """Saves essays data to JSON file."""
         data_dir = os.path.join(JSON_DATA_DIR)
         os.makedirs(data_dir, exist_ok=True)
 
         json_path = os.path.join(data_dir, f"{self.writer_name}.json")
-        existing_data: List[Dict[str, Any]] = []
+        existing_data: list[dict[str, Any]] = []
 
         if os.path.exists(json_path):
             async with aiofiles.open(json_path, encoding="utf-8") as file:
@@ -533,7 +533,7 @@ class BaseSubstackScraper(ABC):
                     existing_data = loaded_data  # type: ignore
 
         # Merge with existing data
-        merged_data: List[Dict[str, Any]] = existing_data + [data for data in essays_data if data not in existing_data]
+        merged_data: list[dict[str, Any]] = existing_data + [data for data in essays_data if data not in existing_data]
 
         async with aiofiles.open(json_path, "w", encoding="utf-8") as file:
             await file.write(json.dumps(merged_data, ensure_ascii=False, indent=4))
@@ -595,7 +595,7 @@ class BaseSubstackScraper(ABC):
         # Create async tasks
         semaphore = asyncio.Semaphore(3)  # Limit concurrent requests
 
-        async def process_with_semaphore(url: str) -> Optional[Dict[str, Any]]:
+        async def process_with_semaphore(url: str) -> dict[str, Any] | None:
             async with semaphore:
                 # Add random delay to be respectful
                 delay = random.uniform(self.delay_range[0], self.delay_range[1])
@@ -653,7 +653,7 @@ class PydollSubstackScraper(BaseSubstackScraper):
         headless: bool = False,
         browser_path: str = "",
         user_agent: str = "",
-        delay_range: Tuple[int, int] = (1, 3),
+        delay_range: tuple[int, int] = (1, 3),
         manual_login: bool = False,
     ):
         super().__init__(base_substack_url, md_save_dir, html_save_dir, delay_range)
@@ -837,7 +837,7 @@ class PydollSubstackScraper(BaseSubstackScraper):
             print("If you encounter access issues with premium content, please try again.")
             self.is_logged_in = True  # Assume successful for manual mode
 
-    async def get_url_soup(self, url: str) -> Optional[BeautifulSoup]:
+    async def get_url_soup(self, url: str) -> BeautifulSoup | None:
         """Get BeautifulSoup from URL using Pydoll."""
         if self.tab is None:
             raise RuntimeError("Browser not initialized. Call initialize_browser() first.")
@@ -942,7 +942,7 @@ class PydollSubstackScraper(BaseSubstackScraper):
             if self.browser:
                 await self.browser.stop()
 
-    async def scrape_single_post(self, url: str) -> Optional[Dict[str, Any]]:
+    async def scrape_single_post(self, url: str) -> dict[str, Any] | None:
         """Scrape a single post and return its data using date-based filenames."""
         # Simply delegate to the new method
         return await self.scrape_single_post_with_date(url)
