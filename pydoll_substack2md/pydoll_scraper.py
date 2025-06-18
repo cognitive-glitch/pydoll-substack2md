@@ -443,10 +443,19 @@ class BaseSubstackScraper(ABC):
         # Date extraction - try multiple selectors
         date = "Date not found"
         date_selectors = [
-            "time",
-            "div.post-meta time",
-            "div[class*='meta'] time",
-            "div.pencraft",
+            # Specific selectors for Substack's byline structure
+            "div.byline-wrapper div[class*='meta-'] div[class*='meta-']:nth-of-type(1)",  # First meta div in byline
+            "div.byline-wrapper div.pencraft:has(> div[class*='meta-'])",  # Byline with meta class
+            "div[class*='byline'] div[class*='meta-EgzBVA']",  # Specific meta class in byline
+            # Time elements within specific contexts
+            "article time[datetime]",  # Time in article with datetime
+            "div.post-header time[datetime]",  # Time in post header
+            "time.post-date[datetime]",  # Time with post-date class
+            # Text-based selectors as fallback
+            "div.byline-wrapper div[class*='secondary-text']",  # Secondary text in byline
+            "span.post-meta-date",
+            "div.post-date",
+            # Removed generic selectors that were too broad
         ]
         for selector in date_selectors:
             date_elem = soup.select_one(selector)
@@ -454,7 +463,10 @@ class BaseSubstackScraper(ABC):
                 # Try to get datetime attribute first
                 date_attr = date_elem.get("datetime")
                 date = str(date_attr) if date_attr else date_elem.text.strip()
-                if date:
+                if date and date != "None":  # Check for valid date
+                    # Debug: print which selector worked
+                    print(f"  Date found using selector: {selector}")
+                    print(f"  Date value: {date}")
                     break
 
         # Like count extraction
@@ -498,20 +510,39 @@ class BaseSubstackScraper(ABC):
 
             # Extract date for filename
             date_str = "1970-01-01"
-            date_selectors = ["time", "div.post-meta time", "div[class*='meta'] time"]
+            date_selectors = [
+                # Specific selectors for Substack's byline structure
+                "div.byline-wrapper div[class*='meta-'] div[class*='meta-']:nth-of-type(1)",  # First meta div in byline
+                "div.byline-wrapper div.pencraft:has(> div[class*='meta-'])",  # Byline with meta class
+                "div[class*='byline'] div[class*='meta-EgzBVA']",  # Specific meta class in byline
+                # Time elements within specific contexts
+                "article time[datetime]",  # Time in article with datetime
+                "div.post-header time[datetime]",  # Time in post header
+                "time.post-date[datetime]",  # Time with post-date class
+                # Text-based selectors as fallback
+                "div.byline-wrapper div[class*='secondary-text']",  # Secondary text in byline
+                "span.post-meta-date",
+                "div.post-date",
+            ]
             for selector in date_selectors:
                 date_elem = soup.select_one(selector)
                 if date_elem:
                     date_attr = date_elem.get("datetime")
-                    if date_attr:
+                    if date_attr and str(date_attr) != "None":
                         date_str = str(date_attr)
+                        print(f"  Date found in filename extraction using selector: {selector}")
+                        print(f"  Date value: {date_str}")
                         break
                     elif date_elem.text.strip():
                         try:
                             parsed_date = dateutil.parser.parse(date_elem.text.strip())
                             date_str = parsed_date.isoformat()
+                            print(f"  Date parsed from text using selector: {selector}")
+                            print(f"  Date value: {date_str}")
                         except Exception:
                             date_str = date_elem.text.strip()
+                            print(f"  Date text used as-is from selector: {selector}")
+                            print(f"  Date value: {date_str}")
                         break
 
             # Convert to YYYYMMDD format
