@@ -396,8 +396,8 @@ class BaseSubstackScraper(ABC):
             with open(local_path, "wb") as f:
                 f.write(response.content)
 
-            # Add small delay for rate limiting (30-100ms)
-            delay = random.uniform(0.03, 0.1)
+            # Add small delay for rate limiting (3-10ms)
+            delay = random.uniform(0.003, 0.01)
             await asyncio.sleep(delay)
 
             return f"images/{filename}"
@@ -754,56 +754,30 @@ class PydollSubstackScraper(BaseSubstackScraper):
 
         print("Logging in to Substack...")
 
-        # Network interception temporarily disabled - NetworkEvent not available in current Pydoll version
-        # async def capture_auth_response(tab, event):
-        #     response = event["params"]["response"]
-        #     url = response["url"]
-        #
-        #     if "/api/v1/login" in url and response["status"] == 200:
-        #         # Capture authentication success
-        #         self.is_logged_in = True
-        #         print("Login successful!")
-        #
-        # await self.tab.on(NetworkEvent.RESPONSE_RECEIVED, partial(capture_auth_response, self.tab))
-
         # Navigate to login page
         await self.tab.go_to("https://substack.com/sign-in")
+        await asyncio.sleep(0.2)  # Wait for page load
 
-        # Click "Sign in with password"
-        signin_button = await self.tab.find(
-            tag_name="a", class_name="login-option", text="Sign in with password", timeout=10
-        )
-        if signin_button:
-            await signin_button.click()  # type: ignore
+        # Perform the login
+        await self.perform_login_on_page()
 
-        # Wait for form to appear
-        await asyncio.sleep(2)
+        # After login, wait and verify
+        await asyncio.sleep(0.3)
 
-        # Fill in credentials
-        email_input = await self.tab.find(name="email", timeout=5)
-        if email_input:
-            await email_input.type_text(SUBSTACK_EMAIL, interval=0.05)  # type: ignore
-
-        password_input = await self.tab.find(name="password", timeout=5)
-        if password_input:
-            await password_input.type_text(SUBSTACK_PASSWORD, interval=0.05)  # type: ignore
-
-        # Submit form
-        submit_button = await self.tab.find(tag_name="button", timeout=5)
-        if submit_button:
-            await submit_button.click()  # type: ignore
-
-        # Wait for login to complete
-        await asyncio.sleep(5)
-
-        # Check for error
-        error_container = await self.tab.find(id="error-container", timeout=2, raise_exc=False)
-        if error_container:
-            raise Exception("Login failed. Please check your credentials.")
-        else:
-            # Assume login successful if no error
+        # Check if we're logged in by looking for common logged-in elements
+        current_url = await self.tab.get_current_url()
+        if "sign-in" not in current_url:
             self.is_logged_in = True
             print("Login successful!")
+        else:
+            # Double check for error
+            error_container = await self.tab.find(id="error-container", timeout=2, raise_exc=False)
+            if error_container:
+                raise Exception("Login failed. Please check your credentials.")
+            else:
+                # Assume success if no error and URL changed
+                self.is_logged_in = True
+                print("Login successful!")
 
     async def perform_manual_login(self) -> None:
         """Manual login mode - opens login page and waits for user to login manually."""
@@ -817,7 +791,7 @@ class PydollSubstackScraper(BaseSubstackScraper):
         await self.tab.go_to("https://substack.com/sign-in")
 
         # Wait for page to load
-        await asyncio.sleep(2)
+        await asyncio.sleep(0.2)
 
         print("\n" + "=" * 60)
         print("MANUAL LOGIN MODE")
@@ -874,6 +848,161 @@ class PydollSubstackScraper(BaseSubstackScraper):
             print("If you encounter access issues with premium content, please try again.")
             self.is_logged_in = True  # Assume successful for manual mode
 
+    async def handle_sign_in_button(self) -> bool:
+        """Check for and click the Sign in button if present. Returns True if handled."""
+        try:
+            # Look for the sign in button - it has native="true" and data-href attributes
+            # Try multiple selectors to find the sign in button
+            sign_in_button = None
+
+            # Method 1: Find button with specific text and native attribute
+            buttons = await self.tab.find(tag_name="button", find_all=True, timeout=2, raise_exc=False)
+            if buttons:
+                for button in buttons:
+                    text = await button.text
+                    if text and "Sign in" in text:
+                        # Check if it has native attribute
+                        native_attr = await button.get_attribute("native")
+                        if native_attr == "true":
+                            sign_in_button = button
+                            break
+
+            # Method 2: Try CSS selector if first method fails
+            if not sign_in_button:
+                sign_in_button = await self.tab.query(
+                    "button[native='true']:has-text('Sign in')", timeout=2, raise_exc=False
+                )
+
+            # Method 3: Look for button with data-href attribute containing sign-in
+            if not sign_in_button:
+                buttons = await self.tab.find(tag_name="button", find_all=True, timeout=2, raise_exc=False)
+                if buttons:
+                    for button in buttons:
+                        data_href = await button.get_attribute("data-href")
+                        if data_href and "sign-in" in str(data_href):
+                            sign_in_button = button
+                            break
+
+            if sign_in_button:
+                print("  Found 'Sign in' button, clicking...")
+                await sign_in_button.click()
+                await asyncio.sleep(0.3)  # Wait for navigation
+
+                # Now perform login
+                await self.perform_login_on_page()
+                return True
+
+        except Exception as e:
+            print(f"  Error handling sign in button: {e}")
+
+        return False
+
+    async def perform_login_on_page(self) -> None:
+        """Perform login on the current page."""
+        if not SUBSTACK_EMAIL or not SUBSTACK_PASSWORD:
+            return
+
+        try:
+            print("  Attempting to login...")
+
+            # Click "Sign in with password" if present
+            signin_with_password = await self.tab.find(
+                tag_name="a", text="Sign in with password", timeout=5, raise_exc=False
+            )
+            if signin_with_password:
+                await signin_with_password.click()
+                await asyncio.sleep(0.2)
+
+            # Fill in credentials
+            email_input = await self.tab.find(name="email", timeout=5, raise_exc=False)
+            if email_input:
+                # Clear the field first
+                await email_input.click()
+                await self.tab.keyboard_press("Control+a")
+                await self.tab.keyboard_press("Delete")
+                await email_input.type_text(SUBSTACK_EMAIL, interval=0.05)
+
+            password_input = await self.tab.find(name="password", timeout=5, raise_exc=False)
+            if password_input:
+                # Clear the field first
+                await password_input.click()
+                await self.tab.keyboard_press("Control+a")
+                await self.tab.keyboard_press("Delete")
+                await password_input.type_text(SUBSTACK_PASSWORD, interval=0.05)
+
+            # Submit form
+            submit_button = await self.tab.find(tag_name="button", text="Sign in", timeout=5, raise_exc=False)
+            if submit_button:
+                await submit_button.click()
+                await asyncio.sleep(0.5)  # Wait for login
+
+                # Check for error
+                error_container = await self.tab.find(id="error-container", timeout=2, raise_exc=False)
+                if not error_container:
+                    self.is_logged_in = True
+                    print("  ✓ Login successful!")
+                else:
+                    print("  ✗ Login failed")
+
+        except Exception as e:
+            print(f"  Error during login: {e}")
+
+    async def handle_paywall(self) -> bool:
+        """Handle paywall by clicking sign in link. Returns True if handled."""
+        try:
+            # Check for paywall using multiple methods
+            paywall = await self.tab.find(attrs={"data-testid": "paywall"}, timeout=2, raise_exc=False)
+            if not paywall:
+                paywall = await self.tab.find(tag_name="h2", class_name="paywall-title", timeout=2, raise_exc=False)
+            if not paywall:
+                # Look for div with class paywall
+                paywall = await self.tab.find(class_name="paywall", timeout=2, raise_exc=False)
+
+            if paywall:
+                print("  Paywall detected!")
+
+                if not self.is_logged_in and (SUBSTACK_EMAIL and SUBSTACK_PASSWORD):
+                    # Look for the sign in link in the paywall - it's inside the paywall-login div
+                    # First try to find the paywall-login div
+                    paywall_login = await self.tab.find(class_name="paywall-login", timeout=2, raise_exc=False)
+
+                    if paywall_login:
+                        # Find the link within the paywall-login div
+                        sign_in_link = await paywall_login.find(tag_name="a", timeout=2, raise_exc=False)
+                    else:
+                        # Fallback: look for any link with "Sign in" text
+                        sign_in_link = await self.tab.find(tag_name="a", text="Sign in", timeout=3, raise_exc=False)
+
+                    if not sign_in_link:
+                        # Try finding link that contains "sign-in" in href
+                        links = await self.tab.find(tag_name="a", find_all=True, timeout=2, raise_exc=False)
+                        if links:
+                            for link in links:
+                                href = await link.get_attribute("href")
+                                text = await link.text
+                                if href and "sign-in" in str(href) and text and "Sign in" in text:
+                                    sign_in_link = link
+                                    break
+
+                    if sign_in_link:
+                        print("  Clicking paywall sign in link...")
+                        await sign_in_link.click()
+                        await asyncio.sleep(0.3)
+
+                        # Perform login
+                        await self.perform_login_on_page()
+
+                        # Navigate back to the original article
+                        return True
+                else:
+                    print("  Cannot access premium content without login")
+                    return False
+
+        except Exception as e:
+            print(f"  Error handling paywall: {e}")
+
+        return False
+
     async def get_url_soup(self, url: str) -> BeautifulSoup | None:
         """Get BeautifulSoup from URL using Pydoll."""
         if self.tab is None:
@@ -884,27 +1013,42 @@ class PydollSubstackScraper(BaseSubstackScraper):
             async with self.tab.expect_and_bypass_cloudflare_captcha():
                 await self.tab.go_to(url)
 
-            # Wait for content to load - multiple strategies for thorough loading
+            # Wait for initial page load
             print("  Waiting for page to fully load...")
+            await asyncio.sleep(0.2)
 
-            # 1. Wait for page load event
-            # Note: Pydoll doesn't have wait_for_load_state, so we use a simple delay
-            # This could be enhanced with PageEvent.LOAD_EVENT_FIRED if needed
-            await asyncio.sleep(2)
-            print("  ✓ Initial page load delay completed")
+            # Check for sign in button on the page (for non-logged in users)
+            if not self.is_logged_in and (SUBSTACK_EMAIL and SUBSTACK_PASSWORD):
+                # First check if we need to sign in on this page
+                sign_in_handled = await self.handle_sign_in_button()
 
-            # 2. Wait for specific content indicators - check for the actual content div
+                # If we just logged in, we might need to navigate back to the article
+                if sign_in_handled:
+                    await asyncio.sleep(0.2)
+                    # Check current URL - if we're not on the article page, go back
+                    current_url = await self.tab.get_current_url()
+                    if url not in current_url:
+                        await self.tab.go_to(url)
+                        await asyncio.sleep(0.3)
+
+            # Check for paywall
+            paywall_handled = await self.handle_paywall()
+            if paywall_handled:
+                # If we handled a paywall login, navigate back to the article
+                await asyncio.sleep(0.2)
+                await self.tab.go_to(url)
+                await asyncio.sleep(0.3)
+
+            # Wait for content to load
             content_loaded = False
-
-            # First try to find the body markup which contains the actual content
-            # Note: Using CSS selector for multiple classes
             print("  Looking for content elements...")
+
+            # Try to find the body markup which contains the actual content
             body_markup = await self.tab.query("div.body.markup", timeout=5, raise_exc=False)
             if body_markup:
                 content_loaded = True
                 print("  ✓ Found div.body.markup")
-                # Wait a bit for any lazy-loaded content within the body
-                await asyncio.sleep(1)
+                await asyncio.sleep(0.1)
             else:
                 # Try other selectors
                 for selector in ["available-content", "article", "post-content"]:
@@ -914,22 +1058,23 @@ class PydollSubstackScraper(BaseSubstackScraper):
                         print(f"  ✓ Found {selector}")
                         break
 
-            # 3. Additional wait for dynamic content if needed
+            # Additional wait for dynamic content if needed
             if not content_loaded:
-                # Last resort - wait for any article tag
                 article = await self.tab.find(tag_name="article", timeout=5, raise_exc=False)
                 if article:
                     content_loaded = True
-                    await asyncio.sleep(2)  # Give extra time for content to render
+                    await asyncio.sleep(0.2)
                 else:
-                    # If still no content found, wait a bit longer
                     print("  Warning: Could not find expected content selectors")
-                    await asyncio.sleep(3)
+                    await asyncio.sleep(0.3)
 
-            # Check for paywall
-            paywall = await self.tab.find(tag_name="h2", class_name="paywall-title", raise_exc=False)
-            if paywall and not self.is_logged_in:
-                print(f"Skipping premium article: {url}")
+            # Final check for paywall (after potential login)
+            final_paywall = await self.tab.find(class_name="paywall", timeout=1, raise_exc=False)
+            if not final_paywall:
+                final_paywall = await self.tab.find(attrs={"data-testid": "paywall"}, timeout=1, raise_exc=False)
+
+            if final_paywall and not self.is_logged_in:
+                print(f"  Skipping premium article (login required): {url}")
                 return None
 
             # Get page source
@@ -1227,8 +1372,8 @@ async def main():
         sys.exit(1)
 
     # Determine if we should use premium scraping
-    use_login = args.login or USE_PREMIUM or (SUBSTACK_EMAIL and SUBSTACK_PASSWORD)
-    use_manual_login = args.manual_login
+    use_login = bool(args.login or USE_PREMIUM or (SUBSTACK_EMAIL and SUBSTACK_PASSWORD))
+    use_manual_login = bool(args.manual_login)
 
     # Validate manual login with headless mode
     if use_manual_login and (args.headless or HEADLESS):
