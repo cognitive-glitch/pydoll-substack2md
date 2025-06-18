@@ -50,8 +50,38 @@ JSON_DATA_DIR = "data"
 
 def extract_main_part(url: str) -> str:
     """Extract the main part of a domain from a URL."""
-    parts = urlparse(url).netloc.split(".")
-    return parts[1] if parts[0] == "www" else parts[0]
+    netloc = urlparse(url).netloc.lower()
+
+    # Remove www. prefix if present
+    if netloc.startswith("www."):
+        netloc = netloc[4:]
+
+    # Split by dots
+    parts = netloc.split(".")
+
+    # Handle special cases
+    if len(parts) >= 2:
+        # For substack.com domains, use the subdomain
+        if parts[-2] == "substack" and parts[-1] == "com":
+            return parts[0] if len(parts) > 2 else "substack"
+
+        # For custom domains with subdomains (e.g., blog.paperswithbacktest.com)
+        # Check if it's a known TLD pattern
+        if len(parts) == 3 and parts[0] in ["blog", "newsletter", "mail", "read"]:
+            # Use the main domain name
+            return parts[1]
+
+        # For research.hangukquant.com -> use full subdomain+domain
+        if len(parts) == 3 and parts[0] not in ["www"]:
+            return f"{parts[0]}-{parts[1]}"
+
+        # For simple custom domains (e.g., algos.org, vertoxquant.com)
+        # Use the main domain name without TLD
+        if len(parts) == 2:
+            return parts[0]
+
+    # Fallback: use the first substantial part
+    return parts[0] if parts else "unknown"
 
 
 async def generate_html_file(author_name: str) -> None:
