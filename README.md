@@ -161,6 +161,43 @@ substack2md https://example.substack.com --delay-min 2 --delay-max 5
 substack2md https://example.substack.com --continuous
 ```
 
+## Scraping Multiple Substacks
+
+You can scrape multiple Substack newsletters in a single run:
+
+```bash
+# Multiple URLs on command line
+substack2md https://newsletter1.substack.com https://newsletter2.substack.com
+
+# From a file (one URL per line)
+substack2md --urls-file substacks.txt
+
+# Pipe URLs from another command
+cat substacks.txt | substack2md
+
+# Combine continuous mode with interval for automatic updates
+substack2md --urls-file substacks.txt --continuous --interval 30
+```
+
+### URLs File Format
+Create a `substacks.txt` file with one URL per line:
+```
+# Comments start with #
+https://stratechery.com
+https://astralcodexten.substack.com
+https://newsletter.substack.com
+```
+
+### Continuous Monitoring
+For continuous monitoring of multiple Substacks:
+```bash
+# Check for new posts every 30 minutes
+substack2md --urls-file substacks.txt --continuous --interval 30
+
+# Check for new posts every hour with login
+substack2md --urls-file substacks.txt --continuous --interval 60 --login
+```
+
 ## Continuous Fetching & Post Numbering
 
 ### Automatic Post Numbering

@@ -978,14 +978,26 @@ Examples:
 
   # Continuous mode - only fetch new posts since last run
   pydoll-substack2md https://example.substack.com --continuous
+
+  # Scrape multiple Substacks
+  pydoll-substack2md https://example1.substack.com https://example2.substack.com
+
+  # Scrape from a file containing URLs
+  pydoll-substack2md --urls-file substacks.txt
+
+  # Continuous mode with interval (re-run every 30 minutes)
+  pydoll-substack2md --urls-file substacks.txt --continuous --interval 30
+
+  # Pipe URLs from another command
+  cat substacks.txt | pydoll-substack2md --continuous
 """,
     )
 
     parser.add_argument(
-        "url",
-        nargs="?",
+        "urls",
+        nargs="*",
         type=str,
-        help="The base URL of the Substack site to scrape",
+        help="One or more Substack URLs to scrape (can also be provided via stdin)",
     )
     parser.add_argument(
         "-d",
@@ -1063,6 +1075,17 @@ Examples:
         "-c",
         action="store_true",
         help="Enable continuous/incremental fetching mode - only scrape new posts since last run",
+    )
+    parser.add_argument(
+        "--interval",
+        type=int,
+        default=0,
+        help="Re-run interval in minutes for continuous mode (0 = run once)",
+    )
+    parser.add_argument(
+        "--urls-file",
+        type=str,
+        help="File containing Substack URLs (one per line)",
     )
 
     return parser.parse_args()

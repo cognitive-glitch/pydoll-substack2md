@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "substack2md"
-version = "0.1.2"
+version = "0.2.0"
 description = "A CAPTCHA-safe Python scraper with Cloudflare bypass that downloads Substack posts and converts them to Markdown. Features automatic CAPTCHA solving, human-like scraping delays, and respectful rate limiting."
 readme = "README.md"
 authors = [{ name = "cognitive-glitch", email = "drivedon02@gmail.com" }]
