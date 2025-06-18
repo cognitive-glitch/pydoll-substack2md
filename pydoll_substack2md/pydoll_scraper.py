@@ -16,6 +16,7 @@ from urllib.parse import urljoin, urlparse
 from xml.etree import ElementTree as ET
 
 import aiofiles
+import dateparser
 import dateutil.parser
 import markdown
 import requests
@@ -443,31 +444,68 @@ class BaseSubstackScraper(ABC):
         # Date extraction - try multiple selectors
         date = "Date not found"
         date_selectors = [
-            # Specific selectors for Substack's byline structure
-            "div.byline-wrapper div[class*='meta-'] div[class*='meta-']:nth-of-type(1)",  # First meta div in byline
-            "div.byline-wrapper div.pencraft:has(> div[class*='meta-'])",  # Byline with meta class
-            "div[class*='byline'] div[class*='meta-EgzBVA']",  # Specific meta class in byline
-            # Time elements within specific contexts
+            # Very specific selector for Substack's current date structure
+            "div.byline-wrapper div.pencraft.pc-display-flex.pc-gap-4 > div:first-child",  # The first div in the date container
+            "div[class*='color-pub-secondary-text'][class*='meta-']:not(:has(*))",  # Meta div without children
+            # Time elements with datetime attribute
+            "time[datetime]",  # Time elements with datetime
             "article time[datetime]",  # Time in article with datetime
             "div.post-header time[datetime]",  # Time in post header
-            "time.post-date[datetime]",  # Time with post-date class
             # Text-based selectors as fallback
-            "div.byline-wrapper div[class*='secondary-text']",  # Secondary text in byline
             "span.post-meta-date",
             "div.post-date",
-            # Removed generic selectors that were too broad
+            "div.post-meta time",
+            "span[class*='date']",
         ]
+
         for selector in date_selectors:
             date_elem = soup.select_one(selector)
             if date_elem:
                 # Try to get datetime attribute first
                 date_attr = date_elem.get("datetime")
-                date = str(date_attr) if date_attr else date_elem.text.strip()
-                if date and date != "None":  # Check for valid date
-                    # Debug: print which selector worked
-                    print(f"  Date found using selector: {selector}")
-                    print(f"  Date value: {date}")
+                if date_attr and str(date_attr) != "None":
+                    date = str(date_attr)
+                    print(f"  Date found from datetime attribute: {date}")
                     break
+                else:
+                    # Get text content
+                    raw_text = date_elem.text.strip()
+                    if raw_text and raw_text != "None":
+                        # Clean up the text - remove author names and extra content
+                        # Split by common separators and look for date patterns
+                        parts = raw_text.split("∙")
+                        for part in parts:
+                            # Check if this part looks like a date
+                            if any(
+                                month in part
+                                for month in [
+                                    "Jan",
+                                    "Feb",
+                                    "Mar",
+                                    "Apr",
+                                    "May",
+                                    "Jun",
+                                    "Jul",
+                                    "Aug",
+                                    "Sep",
+                                    "Oct",
+                                    "Nov",
+                                    "Dec",
+                                ]
+                            ):
+                                date = part.strip()
+                                print(f"  Date extracted from text: {date}")
+                                break
+                        else:
+                            # If no month found, use the first part that contains numbers
+                            for part in parts:
+                                if any(char.isdigit() for char in part):
+                                    date = part.strip()
+                                    print(f"  Date extracted from text: {date}")
+                                    break
+
+                        if date != "Date not found":
+                            break
 
         # Like count extraction
         like_count_elem = soup.select_one("a.post-ufi-button .label")
@@ -511,46 +549,86 @@ class BaseSubstackScraper(ABC):
             # Extract date for filename
             date_str = "1970-01-01"
             date_selectors = [
-                # Specific selectors for Substack's byline structure
-                "div.byline-wrapper div[class*='meta-'] div[class*='meta-']:nth-of-type(1)",  # First meta div in byline
-                "div.byline-wrapper div.pencraft:has(> div[class*='meta-'])",  # Byline with meta class
-                "div[class*='byline'] div[class*='meta-EgzBVA']",  # Specific meta class in byline
-                # Time elements within specific contexts
+                # Very specific selector for Substack's current date structure
+                "div.byline-wrapper div.pencraft.pc-display-flex.pc-gap-4 > div:first-child",  # The first div in the date container
+                "div[class*='color-pub-secondary-text'][class*='meta-']:not(:has(*))",  # Meta div without children
+                # Time elements with datetime attribute
+                "time[datetime]",  # Time elements with datetime
                 "article time[datetime]",  # Time in article with datetime
                 "div.post-header time[datetime]",  # Time in post header
-                "time.post-date[datetime]",  # Time with post-date class
                 # Text-based selectors as fallback
-                "div.byline-wrapper div[class*='secondary-text']",  # Secondary text in byline
                 "span.post-meta-date",
                 "div.post-date",
+                "div.post-meta time",
+                "span[class*='date']",
             ]
+
+            extracted_date = None
             for selector in date_selectors:
                 date_elem = soup.select_one(selector)
                 if date_elem:
+                    # Try to get datetime attribute first
                     date_attr = date_elem.get("datetime")
                     if date_attr and str(date_attr) != "None":
-                        date_str = str(date_attr)
-                        print(f"  Date found in filename extraction using selector: {selector}")
-                        print(f"  Date value: {date_str}")
+                        extracted_date = str(date_attr)
+                        print(f"  Date found from datetime attribute: {extracted_date}")
                         break
-                    elif date_elem.text.strip():
-                        try:
-                            parsed_date = dateutil.parser.parse(date_elem.text.strip())
-                            date_str = parsed_date.isoformat()
-                            print(f"  Date parsed from text using selector: {selector}")
-                            print(f"  Date value: {date_str}")
-                        except Exception:
-                            date_str = date_elem.text.strip()
-                            print(f"  Date text used as-is from selector: {selector}")
-                            print(f"  Date value: {date_str}")
-                        break
+                    else:
+                        # Get text content
+                        raw_text = date_elem.text.strip()
+                        if raw_text and raw_text != "None":
+                            # Clean up the text - remove author names and extra content
+                            # Split by common separators and look for date patterns
+                            parts = raw_text.split("∙")
+                            for part in parts:
+                                # Check if this part looks like a date
+                                if any(
+                                    month in part
+                                    for month in [
+                                        "Jan",
+                                        "Feb",
+                                        "Mar",
+                                        "Apr",
+                                        "May",
+                                        "Jun",
+                                        "Jul",
+                                        "Aug",
+                                        "Sep",
+                                        "Oct",
+                                        "Nov",
+                                        "Dec",
+                                    ]
+                                ):
+                                    extracted_date = part.strip()
+                                    print(f"  Date extracted from text: {extracted_date}")
+                                    break
+                            else:
+                                # If no month found, use the first part that contains numbers
+                                for part in parts:
+                                    if any(char.isdigit() for char in part):
+                                        extracted_date = part.strip()
+                                        print(f"  Date extracted from text: {extracted_date}")
+                                        break
 
-            # Convert to YYYYMMDD format
-            try:
-                parsed_date = dateutil.parser.parse(date_str)
-                date_prefix = parsed_date.strftime("%Y%m%d")
-            except Exception:
-                date_prefix = "19700101"
+                            if extracted_date:
+                                break
+
+            # Parse the extracted date to create filename
+            if extracted_date and extracted_date != "Date not found":
+                try:
+                    # Use dateparser for robust date parsing
+                    parsed_date = dateparser.parse(extracted_date, settings={"PREFER_DAY_OF_MONTH": "first"})
+                    if parsed_date:
+                        date_str = parsed_date.strftime("%Y%m%d")
+                    else:
+                        print(f"  Warning: dateparser could not parse date '{extracted_date}'")
+                        date_str = "19700101"
+                except Exception as e:
+                    print(f"  Warning: Error parsing date '{extracted_date}': {e}")
+                    date_str = "19700101"
+
+            # Use the parsed date string as the prefix
+            date_prefix = date_str if date_str != "1970-01-01" else "19700101"
 
             # Extract post data
             title, subtitle, like_count, date, md = await self.extract_post_data(soup, url)

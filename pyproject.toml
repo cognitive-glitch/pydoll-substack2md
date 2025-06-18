@@ -46,7 +46,8 @@ dependencies = [
     "requests>=2.31.0",       # For sitemap/feed fetching
     "markdown>=3.6",          # For HTML generation
     "python-dotenv>=1.0.0",   # Environment variable management
-    "python-dateutil>=2.8.0", # For date parsing
+    "python-dateutil>=2.8.0", # For basic date parsing
+    "dateparser>=1.2.0",      # For robust multi-format date parsing
 ]
 
 [project.optional-dependencies]
