@@ -799,8 +799,8 @@ class PydollSubstackScraper(BaseSubstackScraper):
             # Wait for content to load - multiple strategies for thorough loading
             print("  Waiting for page to fully load...")
 
-            # 1. Wait for network to be idle
-            await self.tab.wait_for_load_state("networkidle")  # type: ignore
+            # 1. Initial page delay to allow JavaScript to execute
+            await asyncio.sleep(2)
 
             # 2. Wait for specific content indicators
             content_loaded = False
@@ -813,9 +813,9 @@ class PydollSubstackScraper(BaseSubstackScraper):
             # 3. Additional wait for dynamic content
             if content_loaded:
                 await asyncio.sleep(2)  # Give extra time for images/dynamic content
-
-            # 4. Wait for images to start loading
-            await self.tab.wait_for_load_state("domcontentloaded")  # type: ignore
+            else:
+                # If no content found, wait a bit longer
+                await asyncio.sleep(3)
 
             # Check for paywall
             paywall = await self.tab.find(tag_name="h2", class_name="paywall-title", raise_exc=False)
@@ -1005,7 +1005,8 @@ class PydollSubstackScraper(BaseSubstackScraper):
             tab = await self.browser.connect()
             try:
                 await tab.go_to(url)
-                await tab.wait_for_load_state("networkidle")
+                # Wait for page to load
+                await asyncio.sleep(2)
 
                 # Wait for content to load
                 await tab.find(class_name="post-title", timeout=10)
@@ -1054,7 +1055,8 @@ class PydollSubstackScraper(BaseSubstackScraper):
             tab = await self.browser.connect()
             try:
                 await tab.go_to(url)
-                await tab.wait_for_load_state("networkidle")
+                # Wait for page to load
+                await asyncio.sleep(2)
 
                 # Wait for content to load
                 await tab.find(class_name="post-title", timeout=10)
@@ -1120,7 +1122,8 @@ class PydollSubstackScraper(BaseSubstackScraper):
 
                 # Wait for full page load
                 print("  Waiting for page to fully load...")
-                await tab.wait_for_load_state("networkidle")  # type: ignore
+                # Wait for page to load
+                await asyncio.sleep(2)  # type: ignore
 
                 # Wait for content to be available
                 content_elem = await tab.find(class_name="available-content", timeout=10, raise_exc=False)
