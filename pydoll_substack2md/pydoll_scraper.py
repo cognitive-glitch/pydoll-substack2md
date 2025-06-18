@@ -941,22 +941,136 @@ class PydollSubstackScraper(BaseSubstackScraper):
         await self.perform_login_on_page()
 
         # After login, wait and verify
-        await asyncio.sleep(3)
+        await asyncio.sleep(5)  # Increased wait time for login redirect
 
         # Check if we're logged in by looking for common logged-in elements
         current_url = await self.tab.current_url
-        if "sign-in" not in current_url:
+        print(f"  Current URL after login: {current_url}")
+
+        # Check for various indicators of successful login
+        login_success = False
+
+        # Method 1: Check if we're redirected away from sign-in page
+        if "sign-in" not in current_url and "substack.com" in current_url:
+            login_success = True
+            print("  ✓ Redirected away from sign-in page")
+
+        # Method 2: Check for user menu or dashboard elements
+        if not login_success:
+            user_menu = await self.tab.find(class_name="user-menu", timeout=5, raise_exc=False)
+            dashboard_link = await self.tab.find(text="Dashboard", timeout=5, raise_exc=False)
+            home_title = await self.tab.find(tag_name="h1", text="Home", timeout=5, raise_exc=False)
+
+            if user_menu or dashboard_link or home_title:
+                login_success = True
+                print("  ✓ Found logged-in user elements")
+
+        # Check for error messages
+        error_container = await self.tab.find(id="error-container", timeout=5, raise_exc=False)
+        if error_container:
+            error_text = await error_container.text
+            raise Exception(f"Login failed: {error_text}")
+
+        if login_success:
             self.is_logged_in = True
-            print("Login successful!")
+            print("✓ Login successful!")
         else:
-            # Double check for error
-            error_container = await self.tab.find(id="error-container", timeout=5, raise_exc=False)
-            if error_container:
-                raise Exception("Login failed. Please check your credentials.")
+            # If we're still on sign-in page but no error, might be 2FA or other prompt
+            if "sign-in" in current_url:
+                print("  Warning: Still on sign-in page. Might require additional authentication.")
+                print("  Proceeding anyway, but login might not be complete.")
+            self.is_logged_in = True  # Optimistically assume success
+
+    async def perform_login_on_page(self) -> None:
+        """Perform the actual login actions on the sign-in page."""
+        try:
+            # First, try to click "Sign in with password" link to reveal password field
+            print("  Looking for 'Sign in with password' link...")
+            sign_in_link = await self.tab.find(tag_name="a", class_name="login-option", timeout=10, raise_exc=False)
+            if not sign_in_link:
+                # Try alternate selector
+                sign_in_link = await self.tab.find(
+                    tag_name="a", text="Sign in with password", timeout=10, raise_exc=False
+                )
+
+            if sign_in_link:
+                print("  Clicking 'Sign in with password' link...")
+                await sign_in_link.click()
+                await asyncio.sleep(2)  # Wait for password field to appear
             else:
-                # Assume success if no error and URL changed
-                self.is_logged_in = True
-                print("Login successful!")
+                print("  Warning: Could not find 'Sign in with password' link")
+
+            # Enter email
+            print("  Entering email...")
+            # Try multiple methods to find email input
+            email_input = await self.tab.find(attrs={"type": "email"}, timeout=20, raise_exc=False)
+            if not email_input:
+                print("  Trying to find by name attribute...")
+                email_input = await self.tab.find(attrs={"name": "email"}, timeout=20, raise_exc=False)
+            if not email_input:
+                print("  Trying to find by placeholder...")
+                email_input = await self.tab.find(attrs={"placeholder": "Email"}, timeout=20, raise_exc=False)
+            if not email_input:
+                print("  Trying CSS selector...")
+                email_input = await self.tab.query("input[type='email']", timeout=20, raise_exc=False)
+            if not email_input:
+                print("  Trying input with class...")
+                email_input = await self.tab.query("input.input-ZGrgg4", timeout=20, raise_exc=False)
+
+            if email_input:
+                await email_input.clear()
+                await email_input.fill(SUBSTACK_EMAIL)
+                await asyncio.sleep(0.5)
+                print("  ✓ Email entered")
+            else:
+                raise Exception("Could not find email input field")
+
+            # Enter password - it should appear after clicking the link
+            print("  Looking for password field...")
+            password_input = await self.tab.find(attrs={"type": "password"}, timeout=20, raise_exc=False)
+            if not password_input:
+                print("  Trying to find by name attribute...")
+                password_input = await self.tab.find(attrs={"name": "password"}, timeout=20, raise_exc=False)
+            if not password_input:
+                print("  Trying CSS selector...")
+                password_input = await self.tab.query("input[type='password']", timeout=20, raise_exc=False)
+            if not password_input:
+                print("  Trying to find by placeholder...")
+                password_input = await self.tab.find(attrs={"placeholder": "Password"}, timeout=20, raise_exc=False)
+
+            if password_input:
+                print("  Entering password...")
+                await password_input.clear()
+                await password_input.fill(SUBSTACK_PASSWORD)
+                await asyncio.sleep(0.5)
+                print("  ✓ Password entered")
+            else:
+                print("  Warning: Password field not found, trying to submit with email only...")
+
+            # Find and click the submit button
+            print("  Looking for submit button...")
+            submit_button = await self.tab.find(tag_name="button", type="submit", timeout=10, raise_exc=False)
+            if not submit_button:
+                # Try to find button with "Continue" text
+                submit_button = await self.tab.find(tag_name="button", text="Continue", timeout=10, raise_exc=False)
+            if not submit_button:
+                # Try to find button with "Sign in" text
+                submit_button = await self.tab.find(tag_name="button", text="Sign in", timeout=10, raise_exc=False)
+
+            if submit_button:
+                print("  Clicking submit button...")
+                await submit_button.click()
+            else:
+                # Try pressing Enter in the password field
+                if password_input:
+                    print("  Pressing Enter in password field...")
+                    await password_input.press("Enter")
+                else:
+                    raise Exception("Could not find submit button")
+
+        except Exception as e:
+            print(f"  Error during login: {e}")
+            raise
 
     async def perform_manual_login(self) -> None:
         """Manual login mode - opens login page and waits for user to login manually."""
@@ -1313,43 +1427,53 @@ class PydollSubstackScraper(BaseSubstackScraper):
             print(f"Error fetching page {url}: {e}")
             return None
 
-    async def scrape_posts(self, num_posts_to_scrape: int = 0, continuous: bool = False) -> None:
+    async def scrape_posts(
+        self, num_posts_to_scrape: int = 0, continuous: bool = False, skip_browser_init: bool = False
+    ) -> None:
         """Override to handle browser lifecycle."""
         try:
-            await self.initialize_browser()
+            if not skip_browser_init:
+                await self.initialize_browser()
 
-            # Login if premium scraping is enabled
-            if USE_PREMIUM or (SUBSTACK_EMAIL and SUBSTACK_PASSWORD) or self.manual_login:
-                if self.manual_login:
-                    await self.perform_manual_login()
-                else:
-                    await self.login()
+                # Login if premium scraping is enabled
+                if USE_PREMIUM or (SUBSTACK_EMAIL and SUBSTACK_PASSWORD) or self.manual_login:
+                    if self.manual_login:
+                        await self.perform_manual_login()
+                    else:
+                        await self.login()
 
             # Call parent scrape_posts with continuous parameter
             await super().scrape_posts(num_posts_to_scrape, continuous)
 
         finally:
-            if self.browser:
+            # Don't stop the browser if it's shared
+            if self.browser and not skip_browser_init:
                 await self.browser.stop()
 
     async def scrape_posts_concurrently(
-        self, num_posts_to_scrape: int = 0, max_concurrent: int = 3, continuous: bool = False
+        self,
+        num_posts_to_scrape: int = 0,
+        max_concurrent: int = 3,
+        continuous: bool = False,
+        skip_browser_init: bool = False,
     ) -> None:
         """Scrape posts concurrently for better performance."""
         try:
-            await self.initialize_browser()
+            if not skip_browser_init:
+                await self.initialize_browser()
 
-            if USE_PREMIUM or (SUBSTACK_EMAIL and SUBSTACK_PASSWORD) or self.manual_login:
-                if self.manual_login:
-                    await self.perform_manual_login()
-                else:
-                    await self.login()
+                if USE_PREMIUM or (SUBSTACK_EMAIL and SUBSTACK_PASSWORD) or self.manual_login:
+                    if self.manual_login:
+                        await self.perform_manual_login()
+                    else:
+                        await self.login()
 
             # Use the base class async scrape_posts method
             await super().scrape_posts(num_posts_to_scrape, continuous)
 
         finally:
-            if self.browser:
+            # Don't stop the browser if it's shared
+            if self.browser and not skip_browser_init:
                 await self.browser.stop()
 
     async def scrape_single_post(self, url: str) -> dict[str, Any] | None:
@@ -1501,8 +1625,19 @@ Examples:
     return parser.parse_args()
 
 
-async def scrape_single_url(url: str, args, use_login: bool, use_manual_login: bool) -> None:
-    """Scrape a single Substack URL."""
+async def scrape_single_url(
+    url: str,
+    args,
+    use_login: bool,
+    use_manual_login: bool,
+    shared_browser=None,
+    shared_tab=None,
+    shared_login_status=False,
+) -> tuple:
+    """Scrape a single Substack URL, optionally using a shared browser session.
+
+    Returns: (browser, tab, is_logged_in) tuple for reuse
+    """
     print(f"\n{'=' * 60}")
     print(f"Scraping: {url}")
     print(f"Login enabled: {use_login}")
@@ -1522,14 +1657,29 @@ async def scrape_single_url(url: str, args, use_login: bool, use_manual_login: b
         manual_login=use_manual_login,
     )
 
+    # Use shared browser if provided
+    if shared_browser and shared_tab:
+        print("🔄 Reusing existing browser session")
+        scraper.browser = shared_browser
+        scraper.tab = shared_tab
+        scraper.is_logged_in = shared_login_status
+
     if args.concurrent:
         await scraper.scrape_posts_concurrently(
             num_posts_to_scrape=args.number or NUM_POSTS_TO_SCRAPE,
             max_concurrent=args.max_concurrent,
             continuous=args.continuous,
+            skip_browser_init=bool(shared_browser),
         )
     else:
-        await scraper.scrape_posts(num_posts_to_scrape=args.number or NUM_POSTS_TO_SCRAPE, continuous=args.continuous)
+        await scraper.scrape_posts(
+            num_posts_to_scrape=args.number or NUM_POSTS_TO_SCRAPE,
+            continuous=args.continuous,
+            skip_browser_init=bool(shared_browser),
+        )
+
+    # Return browser, tab, and login status for reuse
+    return scraper.browser, scraper.tab, scraper.is_logged_in
 
 
 def get_urls_from_file(filepath: str) -> list[str]:
@@ -1619,41 +1769,55 @@ async def main():
         print(f"📅 Continuous mode: Will re-run every {args.interval} minutes")
 
     # Main scraping loop
-    while True:
-        start_time = time.time()
+    shared_browser = None
+    shared_tab = None
+    shared_login_status = False
 
-        # Scrape all URLs
-        for i, url in enumerate(unique_urls, 1):
-            print(f"\n📍 Processing {i}/{len(unique_urls)}: {url}")
-            try:
-                await scrape_single_url(url, args, use_login, use_manual_login)
-                print(f"✅ Completed: {url}")
-            except Exception as e:
-                print(f"❌ Error scraping {url}: {e}")
-                if args.continuous:
-                    print("   Continuing with next URL...")
-                    continue
-                else:
-                    raise
+    try:
+        while True:
+            start_time = time.time()
 
-        # Check if we should continue
-        if not args.continuous or args.interval <= 0:
-            break
+            # Scrape all URLs
+            for i, url in enumerate(unique_urls, 1):
+                print(f"\n📍 Processing {i}/{len(unique_urls)}: {url}")
+                try:
+                    # Reuse browser session across URLs
+                    shared_browser, shared_tab, shared_login_status = await scrape_single_url(
+                        url, args, use_login, use_manual_login, shared_browser, shared_tab, shared_login_status
+                    )
+                    print(f"✅ Completed: {url}")
+                except Exception as e:
+                    print(f"❌ Error scraping {url}: {e}")
+                    if args.continuous:
+                        print("   Continuing with next URL...")
+                        continue
+                    else:
+                        raise
 
-        # Calculate time until next run
-        elapsed = time.time() - start_time
-        wait_time = max(0, args.interval * 60 - elapsed)
-
-        if wait_time > 0:
-            print(f"\n⏰ Waiting {wait_time / 60:.1f} minutes until next run...")
-            print("   Press Ctrl+C to stop")
-            try:
-                await asyncio.sleep(wait_time)
-            except KeyboardInterrupt:
-                print("\n👋 Stopping continuous mode")
+            # Check if we should continue
+            if not args.continuous or args.interval <= 0:
                 break
 
-    print("\n✨ All scraping completed!")
+            # Calculate time until next run
+            elapsed = time.time() - start_time
+            wait_time = max(0, args.interval * 60 - elapsed)
+
+            if wait_time > 0:
+                print(f"\n⏰ Waiting {wait_time / 60:.1f} minutes until next run...")
+                print("   Press Ctrl+C to stop")
+                try:
+                    await asyncio.sleep(wait_time)
+                except KeyboardInterrupt:
+                    print("\n👋 Stopping continuous mode")
+                    break
+
+        print("\n✨ All scraping completed!")
+
+    finally:
+        # Clean up the shared browser session when done
+        if shared_browser:
+            print("\n🔧 Closing browser session...")
+            await shared_browser.stop()
 
 
 def run():
