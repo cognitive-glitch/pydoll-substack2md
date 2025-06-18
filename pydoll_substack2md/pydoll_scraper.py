@@ -20,6 +20,7 @@ import dateparser
 import dateutil.parser
 import markdown
 import requests
+import requests.exceptions
 from bs4 import BeautifulSoup
 from dotenv import load_dotenv
 from html_to_markdown import convert_to_markdown
@@ -1212,58 +1213,6 @@ class PydollSubstackScraper(BaseSubstackScraper):
 
         return False
 
-    async def perform_login_on_page(self) -> None:
-        """Perform login on the current page."""
-        if not SUBSTACK_EMAIL or not SUBSTACK_PASSWORD:
-            return
-
-        try:
-            print("  Attempting to login...")
-
-            # Click "Sign in with password" if present
-            signin_with_password = await self.tab.find(
-                tag_name="a", text="Sign in with password", timeout=15, raise_exc=False
-            )
-            if signin_with_password:
-                await signin_with_password.click()
-                await asyncio.sleep(2)
-
-            # Fill in credentials
-            email_input = await self.tab.find(name="email", timeout=15, raise_exc=False)
-            if email_input:
-                # Clear the field first
-                await email_input.click()
-                # Clear by selecting all and typing
-                await email_input.select_all()
-                await email_input.press_key("Delete")
-                await email_input.type_text(SUBSTACK_EMAIL, interval=0.05)
-
-            password_input = await self.tab.find(name="password", timeout=15, raise_exc=False)
-            if password_input:
-                # Clear the field first
-                await password_input.click()
-                # Clear by selecting all and typing
-                await password_input.select_all()
-                await password_input.press_key("Delete")
-                await password_input.type_text(SUBSTACK_PASSWORD, interval=0.05)
-
-            # Submit form
-            submit_button = await self.tab.find(tag_name="button", text="Sign in", timeout=15, raise_exc=False)
-            if submit_button:
-                await submit_button.click()
-                await asyncio.sleep(5)  # Wait for login - increased from 0.5
-
-                # Check for error
-                error_container = await self.tab.find(id="error-container", timeout=5, raise_exc=False)
-                if not error_container:
-                    self.is_logged_in = True
-                    print("  ✓ Login successful!")
-                else:
-                    print("  ✗ Login failed")
-
-        except Exception as e:
-            print(f"  Error during login: {e}")
-
     async def handle_paywall(self) -> bool:
         """Handle paywall by clicking sign in link. Returns True if handled."""
         try:
@@ -1363,8 +1312,46 @@ class PydollSubstackScraper(BaseSubstackScraper):
 
         return False
 
+    async def check_browser_health(self) -> bool:
+        """Check if browser connection is still alive."""
+        if self.browser is None or self.tab is None:
+            return False
+
+        try:
+            # Try a simple operation to test connection
+            await self.tab.current_url
+            return True
+        except Exception:
+            return False
+
+    async def ensure_browser_initialized(self) -> None:
+        """Ensure browser is initialized and healthy, reconnect if needed."""
+        if not await self.check_browser_health():
+            print("  Browser connection lost, reinitializing...")
+            # Clean up old browser if exists
+            if self.browser:
+                try:
+                    await self.browser.stop()
+                except Exception:
+                    pass
+
+            # Reinitialize
+            await self.initialize_browser()
+
+            # Re-login if we were logged in before
+            if self.is_logged_in and (USE_PREMIUM or (SUBSTACK_EMAIL and SUBSTACK_PASSWORD) or self.manual_login):
+                print("  Re-establishing login session...")
+                if self.manual_login:
+                    print("  Manual login was used previously. You may need to login again if prompted.")
+                    self.is_logged_in = True  # Assume still logged in for manual mode
+                else:
+                    await self.login()
+
     async def get_url_soup(self, url: str) -> BeautifulSoup | None:
         """Get BeautifulSoup from URL using Pydoll."""
+        # Ensure browser is healthy before proceeding
+        await self.ensure_browser_initialized()
+
         if self.tab is None:
             raise RuntimeError("Browser not initialized. Call initialize_browser() first.")
 
@@ -1446,8 +1433,24 @@ class PydollSubstackScraper(BaseSubstackScraper):
             return BeautifulSoup(page_source, "html.parser")
 
         except Exception as e:
-            print(f"Error fetching page {url}: {e}")
-            return None
+            error_msg = str(e)
+            if "Connect call failed" in error_msg and "9263" in error_msg:
+                # Browser connection lost
+                print(f"  Browser connection lost while fetching {url}")
+                print("  Attempting to reconnect...")
+                await self.ensure_browser_initialized()
+                # Try once more
+                try:
+                    await self.tab.go_to(url)
+                    await asyncio.sleep(3)
+                    page_source = await self.tab.page_source
+                    return BeautifulSoup(page_source, "html.parser")
+                except Exception as retry_e:
+                    print(f"  Retry failed: {retry_e}")
+                    return None
+            else:
+                print(f"Error fetching page {url}: {e}")
+                return None
 
     async def scrape_posts(
         self, num_posts_to_scrape: int = 0, continuous: bool = False, skip_browser_init: bool = False
@@ -1685,6 +1688,15 @@ async def scrape_single_url(
         scraper.browser = shared_browser
         scraper.tab = shared_tab
         scraper.is_logged_in = shared_login_status
+
+        # Check browser health
+        if not await scraper.check_browser_health():
+            print("⚠️  Shared browser session is dead, creating new session...")
+            shared_browser = None
+            shared_tab = None
+            scraper.browser = None
+            scraper.tab = None
+            scraper.is_logged_in = False
 
     if args.concurrent:
         await scraper.scrape_posts_concurrently(
