@@ -201,7 +201,9 @@ class BaseSubstackScraper(ABC):
 
     def fetch_urls_from_sitemap(self) -> list[str]:
         """Fetches URLs from sitemap.xml."""
-        sitemap_url = f"{self.base_substack_url}sitemap.xml"
+        # Ensure base URL ends with /
+        base_url = self.base_substack_url.rstrip("/") + "/"
+        sitemap_url = f"{base_url}sitemap.xml"
         try:
             response = requests.get(sitemap_url, timeout=10)
             if not response.ok:
@@ -216,6 +218,13 @@ class BaseSubstackScraper(ABC):
             ]
             print(f"Found {len(urls)} URLs in sitemap")
             return urls
+        except requests.exceptions.ConnectionError as e:
+            if "NameResolutionError" in str(e) or "Failed to resolve" in str(e):
+                print(f"⚠️  Cannot reach domain: {self.base_substack_url}")
+                print("   The domain might not exist or might have changed.")
+            else:
+                print(f"Failed to fetch sitemap: {e}")
+            return []
         except Exception as e:
             print(f"Failed to fetch sitemap: {e}")
             return []
@@ -223,7 +232,9 @@ class BaseSubstackScraper(ABC):
     def fetch_urls_from_feed(self) -> list[str]:
         """Fetches URLs from feed.xml."""
         print("Falling back to feed.xml. This will only contain up to the 22 most recent posts.")
-        feed_url = f"{self.base_substack_url}feed.xml"
+        # Ensure base URL ends with /
+        base_url = self.base_substack_url.rstrip("/") + "/"
+        feed_url = f"{base_url}feed.xml"
         try:
             response = requests.get(feed_url, timeout=10)
             if not response.ok:
@@ -238,6 +249,12 @@ class BaseSubstackScraper(ABC):
                     urls.append(link.text)
             print(f"Found {len(urls)} URLs in feed")
             return urls
+        except requests.exceptions.ConnectionError as e:
+            if "NameResolutionError" in str(e) or "Failed to resolve" in str(e):
+                print(f"⚠️  Skipping unreachable domain: {self.base_substack_url}")
+            else:
+                print(f"Failed to fetch feed: {e}")
+            return []
         except Exception as e:
             print(f"Failed to fetch feed: {e}")
             return []
@@ -762,6 +779,11 @@ class BaseSubstackScraper(ABC):
             continuous: If True, only scrape new posts since last run
         """
         print(f"Starting async scraping of posts from {self.base_substack_url}")
+
+        # Check if we have any URLs to process
+        if not self.post_urls:
+            print("No posts found to scrape. The domain might be unreachable or have no content.")
+            return
 
         # Load previous state
         state = self.load_scraping_state() if continuous else {}
