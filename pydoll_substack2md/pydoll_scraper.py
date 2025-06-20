@@ -167,6 +167,7 @@ class BaseSubstackScraper(ABC):
         urls = self.fetch_urls_from_sitemap()
         if not urls:
             urls = self.fetch_urls_from_feed()
+            print("Warning: Falling back to feed.xml. This will only contain up to the 22 most recent posts.")
         return self.filter_urls(urls, self.keywords)
 
     def load_scraping_state(self) -> dict[str, Any]:
@@ -1066,53 +1067,53 @@ class PydollSubstackScraper(BaseSubstackScraper):
     async def perform_login_on_page(self) -> None:
         """Perform the actual login actions on the sign-in page."""
         try:
-            # First, try to click "Sign in with password" link to reveal password field
-            # Using reduced timeouts to avoid blocking too long as per CLAUDE.md guidance
-            print("  Looking for 'Sign in with password' link...")
-            sign_in_link = await self.tab.find(
-                tag_name="a", class_name="login-option", timeout=5, raise_exc=False
-            )  # Reduced from 10s to 5s
-            if not sign_in_link:
-                # Try alternate selector
-                sign_in_link = await self.tab.find(
-                    tag_name="a",
-                    text="Sign in with password",
-                    timeout=5,
-                    raise_exc=False,  # Reduced from 10s to 5s
-                )
-
-            if sign_in_link:
-                print("  Clicking 'Sign in with password' link...")
-                await sign_in_link.click()
-                await asyncio.sleep(2)  # Wait for password field to appear
-            else:
-                print("  Warning: Could not find 'Sign in with password' link")
+            # Based on sign-in.html analysis, both email and password fields are already visible
+            # No need to click any "Sign in with password" link - the form is ready for input
+            print("  Both email and password fields should be directly available on the sign-in page...")
 
             # Find email input using concurrent search for faster detection
             print("  Finding email input concurrently...")
 
             # Create concurrent tasks for all email input detection methods
+            # Based on sign-in.html: <input type="email" name="email" placeholder="Email" class="input-ZGrgg4">
             email_tasks = [
-                ("type_email", asyncio.create_task(
-                    self.tab.find(attrs={"type": "email"}, timeout=5, raise_exc=False),
-                    name="email_by_type"
-                )),
-                ("name_email", asyncio.create_task(
-                    self.tab.find(attrs={"name": "email"}, timeout=5, raise_exc=False),
-                    name="email_by_name"
-                )),
-                ("placeholder_email", asyncio.create_task(
-                    self.tab.find(attrs={"placeholder": "Email"}, timeout=5, raise_exc=False),
-                    name="email_by_placeholder"
-                )),
-                ("css_email", asyncio.create_task(
-                    self.tab.query("input[type='email']", timeout=5, raise_exc=False),
-                    name="email_by_css"
-                )),
-                ("class_email", asyncio.create_task(
-                    self.tab.query("input.input-ZGrgg4", timeout=5, raise_exc=False),
-                    name="email_by_class"
-                )),
+                (
+                    "type_email",
+                    asyncio.create_task(
+                        self.tab.find(attrs={"type": "email"}, timeout=5, raise_exc=False), name="email_by_type"
+                    ),
+                ),
+                (
+                    "name_email",
+                    asyncio.create_task(
+                        self.tab.find(attrs={"name": "email"}, timeout=5, raise_exc=False), name="email_by_name"
+                    ),
+                ),
+                (
+                    "placeholder_email",
+                    asyncio.create_task(
+                        self.tab.find(attrs={"placeholder": "Email"}, timeout=5, raise_exc=False),
+                        name="email_by_placeholder",
+                    ),
+                ),
+                (
+                    "css_email",
+                    asyncio.create_task(
+                        self.tab.query("input[type='email']", timeout=5, raise_exc=False), name="email_by_css"
+                    ),
+                ),
+                (
+                    "class_email",
+                    asyncio.create_task(
+                        self.tab.query("input.input-ZGrgg4", timeout=5, raise_exc=False), name="email_by_class"
+                    ),
+                ),
+                (
+                    "form_email",
+                    asyncio.create_task(
+                        self.tab.query("form input[name='email']", timeout=5, raise_exc=False), name="email_by_form"
+                    ),
+                ),
             ]
 
             email_input = None
@@ -1121,7 +1122,7 @@ class PydollSubstackScraper(BaseSubstackScraper):
                 done, pending = await asyncio.wait(
                     [task for _, task in email_tasks],
                     timeout=10,  # Overall timeout for email input detection
-                    return_when=asyncio.FIRST_COMPLETED
+                    return_when=asyncio.FIRST_COMPLETED,
                 )
 
                 # Cancel pending tasks
@@ -1159,23 +1160,47 @@ class PydollSubstackScraper(BaseSubstackScraper):
             print("  Finding password field concurrently...")
 
             # Create concurrent tasks for all password input detection methods
+            # Based on sign-in.html: <input type="password" name="password" placeholder="Password" class="input-ZGrgg4">
             password_tasks = [
-                ("type_password", asyncio.create_task(
-                    self.tab.find(attrs={"type": "password"}, timeout=5, raise_exc=False),
-                    name="password_by_type"
-                )),
-                ("name_password", asyncio.create_task(
-                    self.tab.find(attrs={"name": "password"}, timeout=5, raise_exc=False),
-                    name="password_by_name"
-                )),
-                ("css_password", asyncio.create_task(
-                    self.tab.query("input[type='password']", timeout=5, raise_exc=False),
-                    name="password_by_css"
-                )),
-                ("placeholder_password", asyncio.create_task(
-                    self.tab.find(attrs={"placeholder": "Password"}, timeout=5, raise_exc=False),
-                    name="password_by_placeholder"
-                )),
+                (
+                    "type_password",
+                    asyncio.create_task(
+                        self.tab.find(attrs={"type": "password"}, timeout=5, raise_exc=False), name="password_by_type"
+                    ),
+                ),
+                (
+                    "name_password",
+                    asyncio.create_task(
+                        self.tab.find(attrs={"name": "password"}, timeout=5, raise_exc=False), name="password_by_name"
+                    ),
+                ),
+                (
+                    "css_password",
+                    asyncio.create_task(
+                        self.tab.query("input[type='password']", timeout=5, raise_exc=False), name="password_by_css"
+                    ),
+                ),
+                (
+                    "placeholder_password",
+                    asyncio.create_task(
+                        self.tab.find(attrs={"placeholder": "Password"}, timeout=5, raise_exc=False),
+                        name="password_by_placeholder",
+                    ),
+                ),
+                (
+                    "class_password",
+                    asyncio.create_task(
+                        self.tab.query("input.input-ZGrgg4[type='password']", timeout=5, raise_exc=False),
+                        name="password_by_class",
+                    ),
+                ),
+                (
+                    "form_password",
+                    asyncio.create_task(
+                        self.tab.query("form input[name='password']", timeout=5, raise_exc=False),
+                        name="password_by_form",
+                    ),
+                ),
             ]
 
             password_input = None
@@ -1184,7 +1209,7 @@ class PydollSubstackScraper(BaseSubstackScraper):
                 done, pending = await asyncio.wait(
                     [task for _, task in password_tasks],
                     timeout=10,  # Overall timeout for password input detection
-                    return_when=asyncio.FIRST_COMPLETED
+                    return_when=asyncio.FIRST_COMPLETED,
                 )
 
                 # Cancel pending tasks
@@ -1223,19 +1248,42 @@ class PydollSubstackScraper(BaseSubstackScraper):
             print("  Finding submit button concurrently...")
 
             # Create concurrent tasks for all submit button detection methods
+            # Based on sign-in.html: <button type="submit" class="pencraft pc-reset pencraft buttonBase-GK1x3M...">Continue</button>
             submit_tasks = [
-                ("submit_type", asyncio.create_task(
-                    self.tab.find(tag_name="button", type="submit", timeout=3, raise_exc=False),
-                    name="submit_by_type"
-                )),
-                ("continue_text", asyncio.create_task(
-                    self.tab.find(tag_name="button", text="Continue", timeout=3, raise_exc=False),
-                    name="submit_by_continue"
-                )),
-                ("signin_text", asyncio.create_task(
-                    self.tab.find(tag_name="button", text="Sign in", timeout=3, raise_exc=False),
-                    name="submit_by_signin"
-                )),
+                (
+                    "submit_type",
+                    asyncio.create_task(
+                        self.tab.find(tag_name="button", attrs={"type": "submit"}, timeout=3, raise_exc=False),
+                        name="submit_by_type",
+                    ),
+                ),
+                (
+                    "continue_text",
+                    asyncio.create_task(
+                        self.tab.find(tag_name="button", text="Continue", timeout=3, raise_exc=False),
+                        name="submit_by_continue",
+                    ),
+                ),
+                (
+                    "signin_text",
+                    asyncio.create_task(
+                        self.tab.find(tag_name="button", text="Sign in", timeout=3, raise_exc=False),
+                        name="submit_by_signin",
+                    ),
+                ),
+                (
+                    "form_submit",
+                    asyncio.create_task(
+                        self.tab.query("form button[type='submit']", timeout=3, raise_exc=False), name="submit_by_form"
+                    ),
+                ),
+                (
+                    "pencraft_button",
+                    asyncio.create_task(
+                        self.tab.query("button.buttonBase-GK1x3M", timeout=3, raise_exc=False),
+                        name="submit_by_pencraft",
+                    ),
+                ),
             ]
 
             submit_button = None
@@ -1244,7 +1292,7 @@ class PydollSubstackScraper(BaseSubstackScraper):
                 done, pending = await asyncio.wait(
                     [task for _, task in submit_tasks],
                     timeout=5,  # Overall timeout for submit button detection
-                    return_when=asyncio.FIRST_COMPLETED
+                    return_when=asyncio.FIRST_COMPLETED,
                 )
 
                 # Cancel pending tasks
@@ -1322,34 +1370,47 @@ class PydollSubstackScraper(BaseSubstackScraper):
 
         # Create concurrent tasks for all login verification methods
         login_check_tasks = [
-            ("user_menu", asyncio.create_task(
-                self.tab.find(class_name="user-menu", timeout=3, raise_exc=False),
-                name="check_user_menu"
-            )),
-            ("avatar_button", asyncio.create_task(
-                self.tab.query("button.avatarButton-lZBlGB", timeout=3, raise_exc=False),
-                name="check_avatar_button"
-            )),
-            ("dashboard_button", asyncio.create_task(
-                self.tab.find(text="Dashboard", timeout=3, raise_exc=False),
-                name="check_dashboard"
-            )),
-            ("reader_nav", asyncio.create_task(
-                self.tab.find(class_name="reader-nav-root", timeout=3, raise_exc=False),
-                name="check_reader_nav"
-            )),
-            ("home_title", asyncio.create_task(
-                self.tab.find(tag_name="h1", text="Home", timeout=3, raise_exc=False),
-                name="check_home_title"
-            )),
-            ("subscriber_elem", asyncio.create_task(
-                self.tab.query("[data-testid='subscriber-only']", timeout=3, raise_exc=False),
-                name="check_subscriber"
-            )),
-            ("signout_elem", asyncio.create_task(
-                self.tab.find(text="Sign out", timeout=3, raise_exc=False),
-                name="check_signout"
-            )),
+            (
+                "user_menu",
+                asyncio.create_task(
+                    self.tab.find(class_name="user-menu", timeout=3, raise_exc=False), name="check_user_menu"
+                ),
+            ),
+            (
+                "avatar_button",
+                asyncio.create_task(
+                    self.tab.query("button.avatarButton-lZBlGB", timeout=3, raise_exc=False), name="check_avatar_button"
+                ),
+            ),
+            (
+                "dashboard_button",
+                asyncio.create_task(
+                    self.tab.find(text="Dashboard", timeout=3, raise_exc=False), name="check_dashboard"
+                ),
+            ),
+            (
+                "reader_nav",
+                asyncio.create_task(
+                    self.tab.find(class_name="reader-nav-root", timeout=3, raise_exc=False), name="check_reader_nav"
+                ),
+            ),
+            (
+                "home_title",
+                asyncio.create_task(
+                    self.tab.find(tag_name="h1", text="Home", timeout=3, raise_exc=False), name="check_home_title"
+                ),
+            ),
+            (
+                "subscriber_elem",
+                asyncio.create_task(
+                    self.tab.query("[data-testid='subscriber-only']", timeout=3, raise_exc=False),
+                    name="check_subscriber",
+                ),
+            ),
+            (
+                "signout_elem",
+                asyncio.create_task(self.tab.find(text="Sign out", timeout=3, raise_exc=False), name="check_signout"),
+            ),
         ]
 
         # Wait for all login verification tasks to complete (or timeout)
@@ -1359,7 +1420,7 @@ class PydollSubstackScraper(BaseSubstackScraper):
             all_tasks = [task for _, task in login_check_tasks]
             results = await asyncio.wait_for(
                 asyncio.gather(*all_tasks, return_exceptions=True),
-                timeout=5  # Overall timeout for all login checks
+                timeout=5,  # Overall timeout for all login checks
             )
 
             # Map results back to their names
@@ -1477,40 +1538,147 @@ class PydollSubstackScraper(BaseSubstackScraper):
 
         return False
 
-    async def handle_paywall(self) -> bool:
-        """Handle paywall by clicking sign in link. Returns True if handled.
-
-        Following CLAUDE.md guidance:
-        - If paywall detected, always try to click login button
-        - Don't block too long with page fully loaded detection mechanism
-        """
+    async def check_login_status_via_analytics(self) -> bool:
+        """Check if user is logged in by examining the analytics config."""
         try:
+            # Get page source and check for analytics config
+            page_source = await self.tab.page_source
+            if page_source and 'is_subscribed":true' in page_source:
+                return True
+
+        except Exception as e:
+            print(f"  Error checking analytics config: {e}")
+
+        return False
+
+    async def check_paywall_via_analytics(self) -> bool:
+        """Check if content is paywalled by examining the analytics config."""
+        try:
+            # Get page source and check for analytics config
+            page_source = await self.tab.page_source
+            if page_source and 'is_subscribed":false' in page_source:
+                return True
+
+        except Exception as e:
+            print(f"  Error checking analytics config for paywall: {e}")
+
+        return False
+
+    async def check_paywall_after_login(self) -> bool:
+        """Check if paywall is still present after login using multiple methods."""
+        try:
+            # Create concurrent tasks for all paywall detection methods
+            paywall_check_tasks = [
+                (
+                    "testid_paywall",
+                    asyncio.create_task(
+                        self.tab.find(attrs={"data-testid": "paywall"}, timeout=3, raise_exc=False),
+                        name="paywall_check_testid",
+                    ),
+                ),
+                (
+                    "class_paywall",
+                    asyncio.create_task(
+                        self.tab.find(class_name="paywall", timeout=3, raise_exc=False), name="paywall_check_class"
+                    ),
+                ),
+                (
+                    "analytics_paywall",
+                    asyncio.create_task(self.check_paywall_via_analytics(), name="paywall_check_analytics"),
+                ),
+            ]
+
+            try:
+                # Wait for first successful paywall detection
+                done, pending = await asyncio.wait(
+                    [task for _, task in paywall_check_tasks],
+                    timeout=5,  # Overall timeout for paywall check
+                    return_when=asyncio.FIRST_COMPLETED,
+                )
+
+                # Cancel pending tasks
+                for task in pending:
+                    task.cancel()
+
+                # Check if any method detected a paywall
+                for method_name, task in paywall_check_tasks:
+                    if task in done:
+                        try:
+                            result = await task
+                            if result:
+                                print(f"  ⚠️ Paywall still present after login (detected via: {method_name})")
+                                return True
+                        except Exception:
+                            continue
+
+            except TimeoutError:
+                print("  ⚠️ Paywall check after login timed out")
+                # Cancel all remaining tasks
+                for _, task in paywall_check_tasks:
+                    if not task.done():
+                        task.cancel()
+
+            return False
+
+        except Exception as e:
+            print(f"  Error checking paywall after login: {e}")
+            return True  # Assume paywall still present on error
+
+    async def handle_paywall(self, url: str) -> bool:
+        """
+        Handle paywall by attempting to log in.
+        Returns True if paywall was successfully bypassed, False otherwise.
+        If paywall cannot be removed by login, warns user and returns False.
+        """
+        print(f"🔒 Checking paywall status for: {url}")
+
+        try:
+            # First, check if user is already logged in by examining analytics config
+            print("  Checking login status via analytics config...")
+            is_logged_in = await self.check_login_status_via_analytics()
+
+            if is_logged_in:
+                print("  ✅ User is already logged in")
+                return True
+
             # Check for paywall using concurrent detection for faster results
             print("  Detecting paywall concurrently...")
 
             # Create concurrent tasks for all paywall detection methods
             paywall_detection_tasks = [
-                ("testid_paywall", asyncio.create_task(
-                    self.tab.find(attrs={"data-testid": "paywall"}, timeout=3, raise_exc=False),
-                    name="paywall_by_testid"
-                )),
-                ("title_paywall", asyncio.create_task(
-                    self.tab.find(tag_name="h2", class_name="paywall-title", timeout=3, raise_exc=False),
-                    name="paywall_by_title"
-                )),
-                ("class_paywall", asyncio.create_task(
-                    self.tab.find(class_name="paywall", timeout=3, raise_exc=False),
-                    name="paywall_by_class"
-                )),
+                (
+                    "testid_paywall",
+                    asyncio.create_task(
+                        self.tab.find(attrs={"data-testid": "paywall"}, timeout=3, raise_exc=False),
+                        name="paywall_by_testid",
+                    ),
+                ),
+                (
+                    "title_paywall",
+                    asyncio.create_task(
+                        self.tab.find(tag_name="h2", class_name="paywall-title", timeout=3, raise_exc=False),
+                        name="paywall_by_title",
+                    ),
+                ),
+                (
+                    "class_paywall",
+                    asyncio.create_task(
+                        self.tab.find(class_name="paywall", timeout=3, raise_exc=False), name="paywall_by_class"
+                    ),
+                ),
+                (
+                    "analytics_paywall",
+                    asyncio.create_task(self.check_paywall_via_analytics(), name="paywall_by_analytics"),
+                ),
             ]
 
-            paywall = None
+            paywall_detected = False
             try:
                 # Wait for first successful paywall detection
                 done, pending = await asyncio.wait(
                     [task for _, task in paywall_detection_tasks],
                     timeout=5,  # Overall timeout for paywall detection
-                    return_when=asyncio.FIRST_COMPLETED
+                    return_when=asyncio.FIRST_COMPLETED,
                 )
 
                 # Cancel pending tasks
@@ -1523,7 +1691,7 @@ class PydollSubstackScraper(BaseSubstackScraper):
                         try:
                             result = await task
                             if result:
-                                paywall = result
+                                paywall_detected = True
                                 print(f"  ✓ Paywall detected via: {method_name}")
                                 break
                         except Exception:
@@ -1536,112 +1704,45 @@ class PydollSubstackScraper(BaseSubstackScraper):
                     if not task.done():
                         task.cancel()
 
-            if paywall:
-                print("  Paywall detected! Always attempting to click login button as per CLAUDE.md guidance...")
-
-                # Always try to find and click a login button when paywall is detected
-                # regardless of login status - this follows the CLAUDE.md instruction
-                login_button = None
-
-                # Try multiple methods to find login button with reduced timeouts
-                # Method 1: Button with "Sign in" or "Log in" text
-                for button_text in ["Sign in", "Log in", "Login"]:
-                    login_button = await self.tab.find(tag_name="button", text=button_text, timeout=3, raise_exc=False)
-                    if login_button:
-                        break
-
-                # Method 2: Button with native="true" and sign-in related attributes
-                if not login_button:
-                    buttons = await self.tab.find(tag_name="button", find_all=True, timeout=3, raise_exc=False)
-                    if buttons:
-                        for button in buttons:
-                            try:
-                                native = await button.get_attribute("native")
-                                data_href = await button.get_attribute("data-href")
-                                text = await button.text
-                                if native == "true" and data_href and "/sign-in" in str(data_href):
-                                    login_button = button
-                                    break
-                                elif text and any(t in text for t in ["Sign in", "Log in", "Login"]):
-                                    login_button = button
-                                    break
-                            except Exception:
-                                # Skip this button if we can't get its attributes
-                                continue
-
-                if login_button:
-                    print("  Clicking login button in paywall...")
-                    await login_button.click()
-                    await asyncio.sleep(2)  # Reduced wait time to avoid blocking too long
-
-                    # Only perform login if we have credentials
-                    if not self.is_logged_in and (SUBSTACK_EMAIL and SUBSTACK_PASSWORD):
-                        # Perform login
-                        await self.perform_login_on_page()
-
-                        # Navigate back to the article
-                        await self.tab.go_back()
-                        await asyncio.sleep(3)  # Reduced wait time
-                        return True
-                    else:
-                        # If no credentials or already logged in, just wait briefly and return
-                        await asyncio.sleep(2)
-                        return True
-
-                # If no button found, look for sign in link with reduced timeouts
-                # Look for the sign in link in the paywall - it's inside the paywall-login div
-                # First try to find the paywall-login div
-                paywall_login = await self.tab.find(class_name="paywall-login", timeout=3, raise_exc=False)
-
-                if paywall_login:
-                    # Find the link within the paywall-login div
-                    sign_in_link = await paywall_login.find(tag_name="a", timeout=3, raise_exc=False)
-                else:
-                    # Fallback: look for any link with "Sign in" text
-                    sign_in_link = await self.tab.find(tag_name="a", text="Sign in", timeout=3, raise_exc=False)
-
-                if not sign_in_link:
-                    # Try finding link that contains "sign-in" in href
-                    links = await self.tab.find(tag_name="a", find_all=True, timeout=3, raise_exc=False)
-                    if links:
-                        for link in links:
-                            try:
-                                href = await link.get_attribute("href")
-                                text = await link.text
-                                if href and "sign-in" in str(href) and text and "Sign in" in text:
-                                    sign_in_link = link
-                                    break
-                            except Exception:
-                                # Skip this link if we can't get its attributes
-                                continue
-
-                if sign_in_link:
-                    print("  Clicking paywall sign in link...")
-                    await sign_in_link.click()
-                    await asyncio.sleep(2)  # Reduced wait time
-
-                    # Only perform login if we have credentials
-                    if not self.is_logged_in and (SUBSTACK_EMAIL and SUBSTACK_PASSWORD):
-                        # Perform login
-                        await self.perform_login_on_page()
-
-                        # Navigate back to the original article
-                        await self.tab.go_back()
-                        await asyncio.sleep(3)  # Reduced wait time to avoid blocking too long
-                        return True
-                    else:
-                        # If no credentials or already logged in, just wait briefly and return
-                        await asyncio.sleep(2)
-                        return True
-
-                # If we couldn't find any login elements, still return True to indicate we tried
-                print("  No login button/link found in paywall, but attempted as per CLAUDE.md guidance")
+            if not paywall_detected:
+                print("  ✅ No paywall detected - content is accessible")
                 return True
 
-        except Exception as e:
-            print(f"  Error handling paywall: {e}")
+            # If we have credentials, try to log in
+            if SUBSTACK_EMAIL and SUBSTACK_PASSWORD:
+                print("  🔑 Attempting to log in to bypass paywall...")
+                login_success = await self.login()
+                if login_success:
+                    print("  ✅ Login successful, checking if paywall is bypassed...")
+                    await asyncio.sleep(3)  # Wait for page to update after login
 
-        return False
+                    # Check if paywall is still present after login using multiple methods
+                    paywall_still_present = await self.check_paywall_after_login()
+
+                    if not paywall_still_present:
+                        print("  ✅ Paywall successfully bypassed!")
+                        return True
+                    else:
+                        print("  ❌ Paywall still present after login - article requires paid subscription")
+                        print(f"  ⚠️  WARNING: Cannot access paywalled content: {url}")
+                        print("  ⚠️  This article will be skipped and not saved.")
+                        return False
+                else:
+                    print("  ❌ Login failed")
+                    print(f"  ⚠️  WARNING: Cannot access paywalled content due to login failure: {url}")
+                    print("  ⚠️  This article will be skipped and not saved.")
+                    return False
+            else:
+                print("  ❌ No credentials provided for login")
+                print(f"  ⚠️  WARNING: Cannot access paywalled content (no credentials): {url}")
+                print("  ⚠️  This article will be skipped and not saved.")
+                return False
+
+        except Exception as e:
+            print(f"  ❌ Error handling paywall: {e}")
+            print(f"  ⚠️  WARNING: Cannot access content due to error: {url}")
+            print("  ⚠️  This article will be skipped and not saved.")
+            return False
 
     async def check_browser_health(self) -> bool:
         """Check if browser connection is still alive."""
@@ -1709,13 +1810,12 @@ class PydollSubstackScraper(BaseSubstackScraper):
                         await self.tab.go_to(url)
                         await asyncio.sleep(3)  # Reduced from 5s to 3s
 
-            # Check for paywall - this will always try to click login button as per CLAUDE.md
-            paywall_handled = await self.handle_paywall()
-            if paywall_handled:
-                # If we handled a paywall login, navigate back to the article
-                await asyncio.sleep(2)  # Reduced from 3s to avoid blocking too long
-                await self.tab.go_to(url)
-                await asyncio.sleep(3)  # Reduced from 5s to 3s
+            # Check for paywall and attempt to bypass it
+            paywall_bypassed = await self.handle_paywall(url)
+            if not paywall_bypassed:
+                # Paywall could not be bypassed - return None to skip this article
+                print(f"  ❌ Skipping paywalled article: {url}")
+                return None
 
             # Wait for content to load with reduced timeouts to avoid blocking too long
             content_loaded = False
@@ -1739,8 +1839,7 @@ class PydollSubstackScraper(BaseSubstackScraper):
 
                 for selector in selectors:
                     task = asyncio.create_task(
-                        self.tab.find(class_name=selector, timeout=5, raise_exc=False),
-                        name=f"find_{selector}"
+                        self.tab.find(class_name=selector, timeout=5, raise_exc=False), name=f"find_{selector}"
                     )
                     selector_tasks.append((selector, task))
 
@@ -1750,7 +1849,7 @@ class PydollSubstackScraper(BaseSubstackScraper):
                     done, pending = await asyncio.wait(
                         [task for _, task in selector_tasks],
                         timeout=10,  # Overall timeout for all concurrent searches
-                        return_when=asyncio.FIRST_COMPLETED
+                        return_when=asyncio.FIRST_COMPLETED,
                     )
 
                     # Cancel pending tasks to free resources
@@ -1786,20 +1885,16 @@ class PydollSubstackScraper(BaseSubstackScraper):
 
                 # Define fallback search tasks
                 article_task = asyncio.create_task(
-                    self.tab.find(tag_name="article", timeout=8, raise_exc=False),
-                    name="fallback_article"
+                    self.tab.find(tag_name="article", timeout=8, raise_exc=False), name="fallback_article"
                 )
                 main_task = asyncio.create_task(
-                    self.tab.find(tag_name="main", timeout=8, raise_exc=False),
-                    name="fallback_main"
+                    self.tab.find(tag_name="main", timeout=8, raise_exc=False), name="fallback_main"
                 )
                 content_task = asyncio.create_task(
-                    self.tab.find(class_name="content", timeout=8, raise_exc=False),
-                    name="fallback_content"
+                    self.tab.find(class_name="content", timeout=8, raise_exc=False), name="fallback_content"
                 )
                 post_task = asyncio.create_task(
-                    self.tab.find(class_name="post", timeout=8, raise_exc=False),
-                    name="fallback_post"
+                    self.tab.find(class_name="post", timeout=8, raise_exc=False), name="fallback_post"
                 )
 
                 fallback_tasks = [
@@ -1814,7 +1909,7 @@ class PydollSubstackScraper(BaseSubstackScraper):
                     done, pending = await asyncio.wait(
                         [task for _, task in fallback_tasks],
                         timeout=15,  # Overall timeout for fallback search
-                        return_when=asyncio.FIRST_COMPLETED
+                        return_when=asyncio.FIRST_COMPLETED,
                     )
 
                     # Cancel pending tasks
@@ -1849,12 +1944,10 @@ class PydollSubstackScraper(BaseSubstackScraper):
 
             # Create concurrent tasks for paywall detection
             paywall_class_task = asyncio.create_task(
-                self.tab.find(class_name="paywall", timeout=3, raise_exc=False),
-                name="paywall_class"
+                self.tab.find(class_name="paywall", timeout=3, raise_exc=False), name="paywall_class"
             )
             paywall_testid_task = asyncio.create_task(
-                self.tab.find(attrs={"data-testid": "paywall"}, timeout=3, raise_exc=False),
-                name="paywall_testid"
+                self.tab.find(attrs={"data-testid": "paywall"}, timeout=3, raise_exc=False), name="paywall_testid"
             )
 
             final_paywall = None
@@ -1863,7 +1956,7 @@ class PydollSubstackScraper(BaseSubstackScraper):
                 done, pending = await asyncio.wait(
                     [paywall_class_task, paywall_testid_task],
                     timeout=5,  # Overall timeout for paywall detection
-                    return_when=asyncio.FIRST_COMPLETED
+                    return_when=asyncio.FIRST_COMPLETED,
                 )
 
                 # Cancel pending tasks
