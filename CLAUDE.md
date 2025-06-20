@@ -165,6 +165,7 @@ from html_to_markdown import markdownify as md
 3. **Browser Support**: Pydoll supports Chrome and Edge browsers natively
 4. **Error Handling**: Leverage Pydoll's event system for robust error detection
 5. **Python Version**: Requires Python ≥ 3.10 for Pydoll
+6. **Paywall Handling**: If paywall detected, always try to click login button, also don't block too long with page fully loaded detection mechanism
 
 ## Testing Approach
 

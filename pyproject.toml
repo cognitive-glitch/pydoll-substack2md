@@ -87,7 +87,7 @@ lint.select = [
     "RUF",  # ruff specific rules
     "PERF", # performance
 ]
-# lint.ignore = ["E501", "B008"]
+lint.ignore = ["E501", "B008"]
 target-version = "py311"
 
 [tool.pyright]
