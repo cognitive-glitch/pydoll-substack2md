@@ -38,6 +38,7 @@ from dotenv import load_dotenv
 from html_to_markdown import convert_to_markdown
 from pydoll.browser.chromium import Chrome  # type: ignore
 from pydoll.browser.options import ChromiumOptions  # type: ignore
+from pydoll.constants import Key  # type: ignore
 
 # Note: Resource blocking feature temporarily disabled - imports not available in current Pydoll version
 from tqdm.asyncio import tqdm
@@ -1067,9 +1068,89 @@ class PydollSubstackScraper(BaseSubstackScraper):
     async def perform_login_on_page(self) -> None:
         """Perform the actual login actions on the sign-in page."""
         try:
-            # Based on sign-in.html analysis, both email and password fields are already visible
-            # No need to click any "Sign in with password" link - the form is ready for input
-            print("  Both email and password fields should be directly available on the sign-in page...")
+            password_check = False
+
+            if not password_check:
+                # Password field not visible, look for "Sign in with password" element
+                print("  Password field not visible, looking for 'Sign in with password' element...")
+
+                # Try multiple selectors to find the "Sign in with password" element
+                sign_in_password_element = None
+
+                # Method 1: Find by class and text
+                try:
+                    sign_in_password_element = await self.tab.find(
+                        tag_name="a",
+                        class_name="login-option",
+                        text="Sign in with password",
+                        timeout=3,
+                        raise_exc=False,
+                    )
+                except:
+                    pass
+
+                # Method 2: Find by CSS selector
+                if not sign_in_password_element:
+                    try:
+                        elements = await self.tab.query_selector_all("a.login-option.substack-login__login-option")
+                        for element in elements:
+                            text_content = await element.text_content()
+                            if "Sign in with password" in text_content:
+                                sign_in_password_element = element
+                                break
+                    except:
+                        pass
+
+                # Method 3: Find by href and text content
+                if not sign_in_password_element:
+                    try:
+                        elements = await self.tab.query_selector_all("a[href='javascript:void(0)']")
+                        for element in elements:
+                            text_content = await element.text_content()
+                            if "Sign in with password" in text_content:
+                                sign_in_password_element = element
+                                break
+                    except:
+                        pass
+
+                if sign_in_password_element:
+                    print("  Found 'Sign in with password' element, clicking...")
+                    await sign_in_password_element.click()
+                    await asyncio.sleep(3)  # Wait for the form to update
+                    print("  ✓ Clicked 'Sign in with password' element")
+
+                    # Verify password field appeared after clicking
+                    password_verify = await self.tab.find(tag_name="input", name="password", timeout=5, raise_exc=False)
+                    if password_verify:
+                        print("  ✓ Password field is now visible!")
+                    else:
+                        print("  ⚠️ Password field still not visible after clicking")
+                        # Try to debug what's on the page
+                        try:
+                            form_action = await self.tab.query("form", timeout=2, raise_exc=False)
+                            if form_action:
+                                action_attr = await form_action.get_attribute("action")
+                                print(f"  Debug: Form action is now: {action_attr}")
+                        except:
+                            pass
+                else:
+                    print("  ❌ No 'Sign in with password' element found with any method")
+                    # Debug: Let's see what elements are actually available
+                    try:
+                        all_links = await self.tab.query_selector_all("a")
+                        print(f"  Debug: Found {len(all_links)} <a> elements on page")
+                        for i, link in enumerate(all_links[:5]):  # Show first 5
+                            try:
+                                text = await link.text_content()
+                                href = await link.get_attribute("href")
+                                classes = await link.get_attribute("class")
+                                print(f"    Link {i + 1}: text='{text}' href='{href}' class='{classes}'")
+                            except:
+                                pass
+                    except Exception as debug_e:
+                        print(f"  Debug failed: {debug_e}")
+            else:
+                print("  ✓ Password field is already visible, proceeding with login...")
 
             # Find email input using concurrent search for faster detection
             print("  Finding email input concurrently...")
@@ -1149,8 +1230,8 @@ class PydollSubstackScraper(BaseSubstackScraper):
                         task.cancel()
 
             if email_input:
-                await email_input.clear()
-                await email_input.fill(SUBSTACK_EMAIL)
+                # Use insert_text which clears the field and inserts new text
+                await email_input.insert_text(SUBSTACK_EMAIL)
                 await asyncio.sleep(0.5)
                 print("  ✓ Email entered")
             else:
@@ -1237,8 +1318,8 @@ class PydollSubstackScraper(BaseSubstackScraper):
 
             if password_input:
                 print("  Entering password...")
-                await password_input.clear()
-                await password_input.fill(SUBSTACK_PASSWORD)
+                # Use insert_text which clears the field and inserts new text
+                await password_input.insert_text(SUBSTACK_PASSWORD)
                 await asyncio.sleep(0.5)
                 print("  ✓ Password entered")
             else:
@@ -1325,7 +1406,7 @@ class PydollSubstackScraper(BaseSubstackScraper):
                 # Try pressing Enter in the password field
                 if password_input:
                     print("  Pressing Enter in password field...")
-                    await password_input.press("Enter")
+                    await password_input.press_keyboard_key(Key.ENTER)
                 else:
                     raise Exception("Could not find submit button")
 
@@ -1711,7 +1792,31 @@ class PydollSubstackScraper(BaseSubstackScraper):
             # If we have credentials, try to log in
             if SUBSTACK_EMAIL and SUBSTACK_PASSWORD:
                 print("  🔑 Attempting to log in to bypass paywall...")
-                login_success = await self.login()
+
+                # First try to click the "Sign in" button on the current page (following CLAUDE.md guidance)
+                print("  Trying to click 'Sign in' button on current page...")
+                sign_in_clicked = await self.handle_sign_in_button()
+
+                login_success = False
+                if sign_in_clicked:
+                    print("  ✅ Clicked 'Sign in' button, checking if login was successful...")
+                    await asyncio.sleep(3)  # Wait for login to complete
+
+                    # Check if we're now logged in
+                    login_success = await self.check_login_status_via_analytics()
+                    if login_success:
+                        print("  ✅ Login successful via 'Sign in' button!")
+                    else:
+                        print("  ⚠️ 'Sign in' button clicked but login status unclear, checking paywall...")
+                        # We'll check paywall status below regardless
+                        login_success = True  # Assume success and let paywall check determine outcome
+
+                # # If clicking the sign in button didn't work, fall back to navigating to login page
+                # if not sign_in_clicked:
+                #     print("  No 'Sign in' button found on page, navigating to login page...")
+
+                #     input("  Please log in manually and press Enter to continue...")
+
                 if login_success:
                     print("  ✅ Login successful, checking if paywall is bypassed...")
                     await asyncio.sleep(3)  # Wait for page to update after login
